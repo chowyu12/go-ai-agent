@@ -1,0 +1,12 @@
+server:
+  host: "0.0.0.0"
+  port: 8080
+
+database:
+  driver: mysql
+  dsn: "root:Aa@147258@tcp(10.8.10.50:3306)/go_ai_agent?charset=utf8mb4&parseTime=True&loc=Local"
+  max_open_conns: 25
+  max_idle_conns: 10
+
+log:
+  level: info

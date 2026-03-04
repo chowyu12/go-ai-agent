@@ -1,0 +1,50 @@
+package config
+
+import (
+	"os"
+
+	"gopkg.in/yaml.v3"
+)
+
+type Config struct {
+	Server   ServerConfig   `yaml:"server"`
+	Database DatabaseConfig `yaml:"database"`
+	Log      LogConfig      `yaml:"log"`
+}
+
+type ServerConfig struct {
+	Host string `yaml:"host"`
+	Port int    `yaml:"port"`
+}
+
+type DatabaseConfig struct {
+	Driver       string `yaml:"driver"`
+	DSN          string `yaml:"dsn"`
+	MaxOpenConns int    `yaml:"max_open_conns"`
+	MaxIdleConns int    `yaml:"max_idle_conns"`
+}
+
+type LogConfig struct {
+	Level string `yaml:"level"`
+}
+
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cfg Config
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return nil, err
+	}
+	if cfg.Server.Port == 0 {
+		cfg.Server.Port = 8080
+	}
+	if cfg.Database.MaxOpenConns == 0 {
+		cfg.Database.MaxOpenConns = 25
+	}
+	if cfg.Database.MaxIdleConns == 0 {
+		cfg.Database.MaxIdleConns = 10
+	}
+	return &cfg, nil
+}

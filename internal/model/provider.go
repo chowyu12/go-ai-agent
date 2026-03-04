@@ -1,0 +1,46 @@
+package model
+
+import (
+	"encoding/json"
+	"time"
+)
+
+type ProviderType string
+
+const (
+	ProviderOpenAI     ProviderType = "openai"
+	ProviderQwen       ProviderType = "qwen"
+	ProviderKimi       ProviderType = "kimi"
+	ProviderOpenRouter ProviderType = "openrouter"
+	ProviderNewAPI     ProviderType = "newapi"
+)
+
+type Provider struct {
+	ID        int64            `json:"id"`
+	Name      string           `json:"name"`
+	Type      ProviderType     `json:"type"`
+	BaseURL   string           `json:"base_url"`
+	APIKey    string           `json:"api_key,omitempty"`
+	Models    json.RawMessage  `json:"models,omitzero"`
+	Enabled   bool             `json:"enabled"`
+	CreatedAt time.Time        `json:"created_at"`
+	UpdatedAt time.Time        `json:"updated_at"`
+}
+
+type CreateProviderReq struct {
+	Name    string           `json:"name"`
+	Type    ProviderType     `json:"type"`
+	BaseURL string           `json:"base_url"`
+	APIKey  string           `json:"api_key"`
+	Models  json.RawMessage  `json:"models,omitzero"`
+	Enabled *bool            `json:"enabled,omitzero"`
+}
+
+type UpdateProviderReq struct {
+	Name    *string          `json:"name,omitzero"`
+	Type    *ProviderType    `json:"type,omitzero"`
+	BaseURL *string          `json:"base_url,omitzero"`
+	APIKey  *string          `json:"api_key,omitzero"`
+	Models  json.RawMessage  `json:"models,omitzero"`
+	Enabled *bool            `json:"enabled,omitzero"`
+}
