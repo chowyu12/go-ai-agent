@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
@@ -485,9 +486,26 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	var fullContent strings.Builder
 	var chunkCount int
+	var utf8Buf []byte
 
 	streamHandler := func(_ context.Context, chunk []byte) error {
 		chunkCount++
+		if len(utf8Buf) > 0 {
+			chunk = append(utf8Buf, chunk...)
+			utf8Buf = nil
+		}
+		if !utf8.Valid(chunk) {
+			l.WithField("hex", fmt.Sprintf("%x", chunk)).Debug("[Stream] incomplete UTF-8 chunk, buffering tail")
+			i := len(chunk)
+			for i > 0 && !utf8.Valid(chunk[:i]) {
+				i--
+			}
+			utf8Buf = append(utf8Buf, chunk[i:]...)
+			chunk = chunk[:i]
+		}
+		if len(chunk) == 0 {
+			return nil
+		}
 		text := string(chunk)
 		fullContent.WriteString(text)
 		return chunkHandler(model.StreamChunk{
@@ -505,6 +523,15 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	start := time.Now()
 	_, err = llmProv.StreamContent(ctx, messages, streamHandler, opts...)
 	duration := time.Since(start)
+
+	if len(utf8Buf) > 0 {
+		fullContent.Write(utf8Buf)
+		_ = chunkHandler(model.StreamChunk{
+			ConversationID: conv.UUID,
+			Delta:          string(utf8Buf),
+		})
+		utf8Buf = nil
+	}
 
 	if err != nil {
 		l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount}).WithError(err).Error("[LLM] << failed")
