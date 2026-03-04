@@ -577,13 +577,13 @@ func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *m
 		return err
 	}
 
-	content := result.Content
-	const chunkSize = 100
-	for i := 0; i < len(content); i += chunkSize {
-		end := min(i+chunkSize, len(content))
+	runes := []rune(result.Content)
+	const runeChunkSize = 50
+	for i := 0; i < len(runes); i += runeChunkSize {
+		end := min(i+runeChunkSize, len(runes))
 		if err := chunkHandler(model.StreamChunk{
 			ConversationID: conv.UUID,
-			Delta:          content[i:end],
+			Delta:          string(runes[i:end]),
 		}); err != nil {
 			return err
 		}

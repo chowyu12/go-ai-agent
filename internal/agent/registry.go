@@ -17,6 +17,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/google/uuid"
 	"github.com/tmc/langchaingo/tools"
+	"golang.org/x/net/html/charset"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
@@ -163,7 +164,13 @@ func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, input str
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 10_000))
+	contentType := resp.Header.Get("Content-Type")
+	reader, err := charset.NewReader(resp.Body, contentType)
+	if err != nil {
+		reader = resp.Body
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(reader, 10_000))
 	if err != nil {
 		return "", fmt.Errorf("read response: %w", err)
 	}
