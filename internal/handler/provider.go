@@ -179,7 +179,6 @@ func defaultModelsByType(providerType model.ProviderType) []string {
 		return []string{}
 	}
 }
-
 func parseListQuery(r *http.Request) model.ListQuery {
 	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
 	pageSize, _ := strconv.Atoi(r.URL.Query().Get("page_size"))
@@ -195,3 +194,4 @@ func parseListQuery(r *http.Request) model.ListQuery {
 		Keyword:  r.URL.Query().Get("keyword"),
 	}
 }
+

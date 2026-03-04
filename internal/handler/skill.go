@@ -31,19 +31,20 @@ func (h *SkillHandler) Create(w http.ResponseWriter, r *http.Request) {
 		httputil.BadRequest(w, "invalid request body")
 		return
 	}
-	sk := &model.Skill{
+	s := &model.Skill{
 		Name:        req.Name,
 		Description: req.Description,
 		Instruction: req.Instruction,
 	}
-	if err := h.store.CreateSkill(r.Context(), sk); err != nil {
+	if err := h.store.CreateSkill(r.Context(), s); err != nil {
 		httputil.InternalError(w, err.Error())
 		return
 	}
+	ctx := r.Context()
 	if len(req.ToolIDs) > 0 {
-		h.store.SetSkillTools(r.Context(), sk.ID, req.ToolIDs)
+		h.store.SetSkillTools(ctx, s.ID, req.ToolIDs)
 	}
-	httputil.OK(w, sk)
+	httputil.OK(w, s)
 }
 
 func (h *SkillHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -53,13 +54,13 @@ func (h *SkillHandler) Get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
-	sk, err := h.store.GetSkill(ctx, id)
+	s, err := h.store.GetSkill(ctx, id)
 	if err != nil {
 		httputil.NotFound(w, "skill not found")
 		return
 	}
-	sk.Tools, _ = h.store.GetSkillTools(ctx, sk.ID)
-	httputil.OK(w, sk)
+	s.Tools, _ = h.store.GetSkillTools(ctx, s.ID)
+	httputil.OK(w, s)
 }
 
 func (h *SkillHandler) List(w http.ResponseWriter, r *http.Request) {

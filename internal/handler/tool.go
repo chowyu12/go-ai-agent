@@ -42,9 +42,6 @@ func (h *ToolHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if req.Enabled != nil {
 		t.Enabled = *req.Enabled
 	}
-	if t.HandlerType == "" {
-		t.HandlerType = model.HandlerBuiltin
-	}
 	if err := h.store.CreateTool(r.Context(), t); err != nil {
 		httputil.InternalError(w, err.Error())
 		return
