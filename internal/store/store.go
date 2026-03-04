@@ -69,6 +69,7 @@ type ConversationStore interface {
 	ListMessages(ctx context.Context, conversationID int64, limit int) ([]model.Message, error)
 
 	CreateExecutionStep(ctx context.Context, step *model.ExecutionStep) error
+	UpdateStepsMessageID(ctx context.Context, conversationID, messageID int64) error
 	ListExecutionSteps(ctx context.Context, messageID int64) ([]model.ExecutionStep, error)
 	ListExecutionStepsByConversation(ctx context.Context, conversationID int64) ([]model.ExecutionStep, error)
 }

@@ -18,6 +18,7 @@ type StepTracker struct {
 	mu        sync.Mutex
 	stepOrder int
 	steps     []model.ExecutionStep
+	onStep    func(step model.ExecutionStep)
 }
 
 func NewStepTracker(s store.ConversationStore, conversationID int64) *StepTracker {
@@ -29,8 +30,13 @@ func NewStepTracker(s store.ConversationStore, conversationID int64) *StepTracke
 
 func (t *StepTracker) SetMessageID(id int64) {
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	t.messageID = id
+	for i := range t.steps {
+		t.steps[i].MessageID = id
+	}
+	t.mu.Unlock()
+
+	t.store.UpdateStepsMessageID(context.Background(), t.conversationID, id)
 }
 
 func (t *StepTracker) RecordStep(ctx context.Context, stepType model.StepType, name, input, output string, status model.StepStatus, stepErr string, duration time.Duration, tokensUsed int, meta *model.StepMetadata) *model.ExecutionStep {
@@ -63,9 +69,20 @@ func (t *StepTracker) RecordStep(ctx context.Context, stepType model.StepType, n
 
 	t.mu.Lock()
 	t.steps = append(t.steps, *step)
+	fn := t.onStep
 	t.mu.Unlock()
 
+	if fn != nil {
+		fn(*step)
+	}
+
 	return step
+}
+
+func (t *StepTracker) SetOnStep(fn func(step model.ExecutionStep)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onStep = fn
 }
 
 func (t *StepTracker) Steps() []model.ExecutionStep {

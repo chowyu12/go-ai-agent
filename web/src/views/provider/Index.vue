@@ -175,10 +175,10 @@ function openDialog(row?: Provider) {
   if (row) {
     const existingModels = Array.isArray(row.models) && row.models.length > 0
       ? [...row.models]
-      : [...(defaultModels[row.type] || [])]
+      : [...(defaultModels[row.type as string] || [])]
     form.value = { ...row, models: existingModels }
   } else {
-    form.value = { name: '', type: 'openai', base_url: '', api_key: '', models: [...defaultModels.openai], enabled: true }
+    form.value = { name: '', type: 'openai', base_url: '', api_key: '', models: [...(defaultModels.openai || [])], enabled: true }
   }
   newModelName.value = ''
   remoteModelsList.value = []

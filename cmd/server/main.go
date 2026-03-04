@@ -18,6 +18,7 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/handler"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
 	"github.com/chowyu12/go-ai-agent/internal/store/mysql"
+	"github.com/chowyu12/go-ai-agent/web"
 )
 
 var configFile = flag.String("config", "etc/config.yaml", "config file path")
@@ -89,20 +90,21 @@ func main() {
 }
 
 func mountFrontend(mux *http.ServeMux) {
-	distDir := "web/dist"
-	if _, err := os.Stat(distDir); err != nil {
+	distFS, err := fs.Sub(web.DistFS, "dist")
+	if err != nil {
+		log.WithError(err).Warn("embedded frontend not available, skipping")
 		return
 	}
-	frontendFS := http.FileServer(http.Dir(distDir))
+	fileServer := http.FileServer(http.FS(distFS))
+	log.Info("serving embedded frontend")
+
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
-		if path == "/" {
-			frontendFS.ServeHTTP(w, r)
-			return
+		if path != "/" {
+			if _, err := fs.Stat(distFS, path[1:]); err != nil {
+				r.URL.Path = "/"
+			}
 		}
-		if _, err := fs.Stat(os.DirFS(distDir), path[1:]); err != nil {
-			r.URL.Path = "/"
-		}
-		frontendFS.ServeHTTP(w, r)
+		fileServer.ServeHTTP(w, r)
 	})
 }

@@ -87,10 +87,11 @@ type ChatResponse struct {
 }
 
 type StreamChunk struct {
-	ConversationID string         `json:"conversation_id,omitzero"`
-	Delta          string         `json:"delta,omitzero"`
-	Done           bool           `json:"done"`
-	Step           *ExecutionStep `json:"step,omitzero"`
+	ConversationID string          `json:"conversation_id,omitzero"`
+	Delta          string          `json:"delta,omitzero"`
+	Done           bool            `json:"done"`
+	Step           *ExecutionStep  `json:"step,omitzero"`
+	Steps          []ExecutionStep `json:"steps,omitzero"`
 }
 
 type ListQuery struct {

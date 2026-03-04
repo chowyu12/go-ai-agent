@@ -299,6 +299,18 @@ func (s *mockStore) CreateExecutionStep(_ context.Context, step *model.Execution
 	s.execSteps[step.ConversationID] = append(s.execSteps[step.ConversationID], *step)
 	return nil
 }
+func (s *mockStore) UpdateStepsMessageID(_ context.Context, conversationID, messageID int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	steps := s.execSteps[conversationID]
+	for i := range steps {
+		if steps[i].MessageID == 0 {
+			steps[i].MessageID = messageID
+		}
+	}
+	s.execSteps[conversationID] = steps
+	return nil
+}
 func (s *mockStore) ListExecutionSteps(_ context.Context, messageID int64) ([]model.ExecutionStep, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -754,10 +766,33 @@ func TestExecute_WithToolCall(t *testing.T) {
 			if !strings.Contains(step.Output, "ECHO:") {
 				t.Errorf("tool step output should contain ECHO, got %q", step.Output)
 			}
+			if step.MessageID == 0 {
+				t.Error("tool step message_id should not be 0 after SetMessageID")
+			}
 		}
 	}
 	if !hasToolStep {
 		t.Error("expected a tool_call execution step for test_echo")
+	}
+
+	// Verify tool steps are queryable by messageID through store
+	for _, step := range result.Steps {
+		if step.StepType == model.StepToolCall {
+			dbSteps, err := s.ListExecutionSteps(t.Context(), step.MessageID)
+			if err != nil {
+				t.Fatalf("ListExecutionSteps: %v", err)
+			}
+			found := false
+			for _, ds := range dbSteps {
+				if ds.Name == "test_echo" && ds.StepType == model.StepToolCall {
+					found = true
+				}
+			}
+			if !found {
+				t.Error("tool step should be queryable by messageID from store")
+			}
+			break
+		}
 	}
 }
 

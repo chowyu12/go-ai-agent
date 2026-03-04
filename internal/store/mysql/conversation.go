@@ -160,6 +160,14 @@ func (s *MySQLStore) CreateExecutionStep(ctx context.Context, step *model.Execut
 	return nil
 }
 
+func (s *MySQLStore) UpdateStepsMessageID(ctx context.Context, conversationID, messageID int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE execution_steps SET message_id = ? WHERE conversation_id = ? AND message_id = 0`,
+		messageID, conversationID,
+	)
+	return err
+}
+
 func (s *MySQLStore) ListExecutionSteps(ctx context.Context, messageID int64) ([]model.ExecutionStep, error) {
 	return s.querySteps(ctx,
 		`SELECT id, message_id, conversation_id, step_order, step_type, name, input, output, status, error, duration_ms, tokens_used, metadata, created_at FROM execution_steps WHERE message_id = ? ORDER BY step_order ASC`,

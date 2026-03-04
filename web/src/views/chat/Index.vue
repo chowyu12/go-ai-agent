@@ -83,14 +83,73 @@
             </div>
           </div>
 
-          <!-- 流式内容 -->
+          <!-- 流式内容 (Dify 风格) -->
           <div v-if="streaming" class="message assistant">
             <div class="message-avatar">
               <el-icon :size="20"><Cpu /></el-icon>
             </div>
             <div class="message-content">
               <div class="message-role">Agent</div>
-              <div class="message-text">
+
+              <!-- 实时执行步骤时间线 -->
+              <div v-if="pendingSteps.length > 0 || !streamingContent" class="wf-timeline">
+                <div
+                  v-for="(step, idx) in pendingSteps" :key="idx"
+                  class="wf-step"
+                >
+                  <div class="wf-step-header" @click="step._expanded = !step._expanded">
+                    <span class="wf-badge" :class="'wf-badge--' + step.step_type">
+                      {{ stepTypeLabel(step.step_type) }}
+                    </span>
+                    <span class="wf-step-name">{{ step.name }}</span>
+                    <el-tag
+                      v-if="step.status === 'success'" type="success" size="small" round
+                    >{{ step.duration_ms }}ms</el-tag>
+                    <el-tag
+                      v-else-if="step.status === 'error'" type="danger" size="small" round
+                    >failed</el-tag>
+                    <el-icon class="wf-step-arrow" :class="{ expanded: step._expanded }">
+                      <ArrowRight />
+                    </el-icon>
+                  </div>
+                  <transition name="wf-slide">
+                    <div v-if="step._expanded" class="wf-step-body">
+                      <div v-if="step.input" class="wf-field">
+                        <div class="wf-field-label">输入</div>
+                        <pre class="wf-field-value">{{ truncateText(step.input, 500) }}</pre>
+                      </div>
+                      <div v-if="step.output" class="wf-field">
+                        <div class="wf-field-label">输出</div>
+                        <pre class="wf-field-value">{{ truncateText(step.output, 500) }}</pre>
+                      </div>
+                      <div v-if="step.error" class="wf-field">
+                        <div class="wf-field-label wf-field-label--error">错误</div>
+                        <pre class="wf-field-value wf-field-value--error">{{ step.error }}</pre>
+                      </div>
+                      <div v-if="step.metadata" class="wf-meta">
+                        <span v-if="step.metadata.provider">Provider: {{ step.metadata.provider }}</span>
+                        <span v-if="step.metadata.model">Model: {{ step.metadata.model }}</span>
+                        <span v-if="step.metadata.tool_name">Tool: {{ step.metadata.tool_name }}</span>
+                      </div>
+                    </div>
+                  </transition>
+                </div>
+
+                <!-- 思考中指示器 -->
+                <div v-if="!streamingContent" class="wf-step wf-step--thinking">
+                  <div class="wf-step-header">
+                    <span class="wf-badge wf-badge--thinking">
+                      <el-icon class="is-loading"><Loading /></el-icon>
+                    </span>
+                    <span class="wf-step-name wf-step-name--muted">
+                      {{ pendingSteps.length > 0 ? '生成回复中...' : '思考中...' }}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 流式文本 -->
+              <div v-if="streamingContent" class="message-text">
                 <span v-html="formatMessage(streamingContent)"></span>
                 <span class="cursor-blink">|</span>
               </div>
@@ -201,8 +260,12 @@ function sendMessage() {
         streamingContent.value += chunk.delta
         scrollToBottom()
       }
-      if (chunk.step) {
-        pendingSteps.value.push(chunk.step)
+      if (chunk.steps && chunk.steps.length > 0) {
+        for (const s of chunk.steps) {
+          pendingSteps.value.push(reactive({ ...s, _expanded: false }))
+        }
+      } else if (chunk.step) {
+        pendingSteps.value.push(reactive({ ...chunk.step, _expanded: false }))
       }
       if (chunk.done) {
         messages.value.push(reactive({
@@ -465,5 +528,155 @@ function truncateText(text: string, maxLen: number): string {
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
+}
+
+/* ===== Dify-style Workflow Timeline ===== */
+.wf-timeline {
+  background: #f7f8fa;
+  border-radius: 12px;
+  padding: 6px;
+  margin-bottom: 10px;
+}
+.wf-step {
+  border-radius: 8px;
+  margin-bottom: 2px;
+  overflow: hidden;
+}
+.wf-step:last-child {
+  margin-bottom: 0;
+}
+.wf-step-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.wf-step-header:hover {
+  background-color: #eef0f3;
+}
+.wf-step--thinking .wf-step-header {
+  cursor: default;
+}
+.wf-step--thinking .wf-step-header:hover {
+  background-color: transparent;
+}
+.wf-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #fff;
+  padding: 0 6px;
+  flex-shrink: 0;
+}
+.wf-badge--tool_call {
+  background: linear-gradient(135deg, #ff9a44, #f57c00);
+}
+.wf-badge--llm_call {
+  background: linear-gradient(135deg, #5b8def, #3370ff);
+}
+.wf-badge--agent_call {
+  background: linear-gradient(135deg, #2dd4a8, #00b894);
+}
+.wf-badge--thinking {
+  background: #c0c4cc;
+  min-width: 24px;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+}
+.wf-step-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: #1d2129;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-step-name--muted {
+  color: #86909c;
+  font-weight: 400;
+}
+.wf-step-arrow {
+  color: #c0c4cc;
+  font-size: 12px;
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.wf-step-arrow.expanded {
+  transform: rotate(90deg);
+}
+.wf-step-body {
+  padding: 4px 12px 12px 58px;
+}
+.wf-field {
+  margin-bottom: 8px;
+}
+.wf-field:last-child {
+  margin-bottom: 0;
+}
+.wf-field-label {
+  font-size: 11px;
+  color: #86909c;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.wf-field-label--error {
+  color: #f56c6c;
+}
+.wf-field-value {
+  background: #fff;
+  border: 1px solid #e5e6eb;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 150px;
+  overflow-y: auto;
+  margin: 0;
+  color: #1d2129;
+}
+.wf-field-value--error {
+  background: #fef0f0;
+  border-color: #fde2e2;
+  color: #f56c6c;
+}
+.wf-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11px;
+  color: #c0c4cc;
+  padding-top: 4px;
+}
+
+/* Workflow slide transition */
+.wf-slide-enter-active, .wf-slide-leave-active {
+  transition: all 0.25s ease;
+  max-height: 500px;
+  overflow: hidden;
+}
+.wf-slide-enter-from, .wf-slide-leave-to {
+  max-height: 0;
+  opacity: 0;
+}
+
+/* Step appear animation */
+.wf-step {
+  animation: wf-appear 0.3s ease;
+}
+@keyframes wf-appear {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 </style>

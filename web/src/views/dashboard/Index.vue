@@ -53,10 +53,10 @@ onMounted(async () => {
       toolApi.list({ page: 1, page_size: 1 }),
       skillApi.list({ page: 1, page_size: 1 }),
     ])
-    cards.value[0].value = (providers as any).data?.total || 0
-    cards.value[1].value = (agents as any).data?.total || 0
-    cards.value[2].value = (tools as any).data?.total || 0
-    cards.value[3].value = (skills as any).data?.total || 0
+    cards.value[0]!.value = (providers as any).data?.total || 0
+    cards.value[1]!.value = (agents as any).data?.total || 0
+    cards.value[2]!.value = (tools as any).data?.total || 0
+    cards.value[3]!.value = (skills as any).data?.total || 0
   } catch {
     // ignore
   }

@@ -30,6 +30,7 @@ export interface ExecutionStep {
     agent_name?: string
   }
   created_at: string
+  _expanded?: boolean
 }
 
 export interface ChatResponse {
@@ -44,6 +45,7 @@ export interface StreamChunk {
   delta?: string
   done: boolean
   step?: ExecutionStep
+  steps?: ExecutionStep[]
 }
 
 export interface Conversation {

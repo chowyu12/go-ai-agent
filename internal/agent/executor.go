@@ -456,6 +456,13 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
 		l.Info("[Execute]    mode = stream + tool-augmented")
+		convUUID := conv.UUID
+		tracker.SetOnStep(func(step model.ExecutionStep) {
+			_ = chunkHandler(model.StreamChunk{
+				ConversationID: convUUID,
+				Step:           &step,
+			})
+		})
 		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, chunkHandler)
 	}
 
@@ -523,7 +530,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 
 	tracker.SetMessageID(assistantMsg.ID)
-	step := tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, content, model.StepSuccess, "", duration, 0, &model.StepMetadata{
+	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, content, model.StepSuccess, "", duration, 0, &model.StepMetadata{
 		Provider:    prov.Name,
 		Model:       ag.ModelName,
 		Temperature: ag.Temperature,
@@ -533,7 +540,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	return chunkHandler(model.StreamChunk{
 		ConversationID: conv.UUID,
 		Done:           true,
-		Step:           step,
+		Steps:          tracker.Steps(),
 	})
 }
 
@@ -555,16 +562,9 @@ func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *m
 		}
 	}
 
-	var lastStep *model.ExecutionStep
-	if steps := tracker.Steps(); len(steps) > 0 {
-		last := steps[len(steps)-1]
-		lastStep = &last
-	}
-
 	return chunkHandler(model.StreamChunk{
 		ConversationID: conv.UUID,
 		Done:           true,
-		Step:           lastStep,
 	})
 }
 
