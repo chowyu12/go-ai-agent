@@ -52,23 +52,23 @@ func NewExecutor(s store.Store, registry *ToolRegistry, opts ...ExecutorOption) 
 }
 
 func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*ExecuteResult, error) {
-	l := log.WithFields(log.Fields{"agent_uuid": req.AgentID, "user_id": req.UserID})
-	reqBody, _ := json.Marshal(req)
-	l.WithField("request_body", string(reqBody)).Info("[Execute] start")
-
 	ag, err := e.store.GetAgentByUUID(ctx, req.AgentID)
 	if err != nil {
-		l.WithError(err).Error("[Execute] agent not found")
+		log.WithFields(log.Fields{"agent_uuid": req.AgentID}).WithError(err).Error("[Execute] agent not found")
 		return nil, fmt.Errorf("agent not found: %w", err)
 	}
-	l = l.WithFields(log.Fields{"agent_name": ag.Name, "agent_id": ag.ID})
 
 	prov, err := e.store.GetProvider(ctx, ag.ProviderID)
 	if err != nil {
-		l.WithFields(log.Fields{"provider_id": ag.ProviderID}).WithError(err).Error("[Execute] provider not found")
+		log.WithFields(log.Fields{"agent": ag.Name, "provider_id": ag.ProviderID}).WithError(err).Error("[Execute] provider not found")
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
-	l.WithFields(log.Fields{"provider": prov.Name, "model": ag.ModelName}).Info("[Execute] resolved provider")
+
+	l := log.WithFields(log.Fields{"agent": ag.Name, "provider": prov.Name, "model": ag.ModelName})
+	l.WithField("user", req.UserID).Info("[Execute] >> start")
+	if reqBody, err := json.Marshal(req); err == nil {
+		l.WithField("body", string(reqBody)).Debug("[Execute]    request body")
+	}
 
 	llmProv, err := e.providerFactory(prov, ag.ModelName)
 	if err != nil {
@@ -81,32 +81,30 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 		l.WithError(err).Error("[Execute] collect tools failed")
 		return nil, err
 	}
-	l.WithField("tool_count", len(agentTools)).Info("[Execute] collected tools")
 
 	skills, err := e.store.GetAgentSkills(ctx, ag.ID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] get skills failed")
 		return nil, fmt.Errorf("get agent skills: %w", err)
 	}
-	l.WithField("skill_count", len(skills)).Info("[Execute] loaded skills")
 
 	conv, err := e.memory.GetOrCreateConversation(ctx, req.ConversationID, ag.ID, req.UserID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] get/create conversation failed")
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
-	l.WithFields(log.Fields{"conv_id": conv.ID, "conv_uuid": conv.UUID}).Info("[Execute] conversation ready")
 
 	tracker := NewStepTracker(e.store, conv.ID)
-
 	subAgentLCTools := e.buildSubAgentLCTools(ctx, ag.ID, tracker)
-	l.WithField("sub_agent_count", len(subAgentLCTools)).Info("[Execute] collected sub-agents")
+
+	logResourceSummary(l, agentTools, skills, subAgentLCTools)
+	l.WithFields(log.Fields{"conv": conv.UUID}).Debug("[Execute]    conversation ready")
 
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
-		l.Info("[Execute] using tool-augmented execution")
+		l.Info("[Execute]    mode = tool-augmented")
 		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker)
 	}
-	l.Info("[Execute] using simple execution")
+	l.Info("[Execute]    mode = simple")
 	return e.executeSimple(ctx, ag, prov, llmProv, conv, skills, req.Message, tracker)
 }
 
@@ -115,6 +113,7 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 	if err != nil {
 		return nil, fmt.Errorf("get agent tools: %w", err)
 	}
+
 	skills, err := e.store.GetAgentSkills(ctx, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("get agent skills: %w", err)
@@ -124,24 +123,29 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 		if err != nil {
 			return nil, fmt.Errorf("get skill tools: %w", err)
 		}
+		if len(skillTools) > 0 {
+			names := make([]string, 0, len(skillTools))
+			for _, t := range skillTools {
+				names = append(names, t.Name)
+			}
+			log.WithFields(log.Fields{"skill": sk.Name, "tools": names}).Debug("[Execute]    skill contributed tools")
+		}
 		agentTools = append(agentTools, skillTools...)
 	}
 	return agentTools, nil
 }
 
 func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
-	l := log.WithFields(log.Fields{"agent": ag.Name, "conv_id": conv.ID, "mode": "simple"})
+	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
 	if err != nil {
-		l.WithError(err).Error("[SimpleExec] load history failed")
+		l.WithError(err).Error("[LLM] load history failed")
 		return nil, err
 	}
-	l.WithField("history_count", len(history)).Info("[SimpleExec] history loaded")
 
 	messages := e.buildMessages(ag, skills, history, userMsg, nil)
-	l.WithField("total_messages", len(messages)).Info("[SimpleExec] messages built")
-	logMessages(l, "[SimpleExec]", messages)
+	logMessages(l, messages)
 
 	opts := []llms.CallOption{
 		llms.WithTemperature(ag.Temperature),
@@ -149,17 +153,17 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}
 
 	if err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0); err != nil {
-		l.WithError(err).Error("[SimpleExec] save user message failed")
+		l.WithError(err).Error("[LLM] save user message failed")
 		return nil, err
 	}
 
-	l.WithFields(log.Fields{"provider": prov.Name, "model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[SimpleExec] calling LLM")
+	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call")
 	start := time.Now()
 	resp, err := llmProv.GenerateContent(ctx, messages, opts...)
 	duration := time.Since(start)
 
 	if err != nil {
-		l.WithFields(log.Fields{"duration": duration}).WithError(err).Error("[SimpleExec] LLM call failed")
+		l.WithFields(log.Fields{"duration": duration}).WithError(err).Error("[LLM] << failed")
 		tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, "", model.StepError, err.Error(), duration, 0, &model.StepMetadata{
 			Provider:    prov.Name,
 			Model:       ag.ModelName,
@@ -169,7 +173,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}
 
 	content := extractContent(resp)
-	l.WithFields(log.Fields{"duration": duration, "response_len": len(content), "response_preview": truncateLog(content, 300)}).Info("[SimpleExec] LLM call success")
+	l.WithFields(log.Fields{"duration": duration, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
 
 	assistantMsg := &model.Message{
 		ConversationID: conv.ID,
@@ -177,7 +181,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 		Content:        content,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
-		l.WithError(err).Error("[SimpleExec] save assistant message failed")
+		l.WithError(err).Error("[Execute] save assistant message failed")
 		return nil, err
 	}
 
@@ -188,7 +192,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 		Temperature: ag.Temperature,
 	})
 
-	l.WithField("msg_id", assistantMsg.ID).Info("[SimpleExec] completed")
+	l.WithFields(log.Fields{"msg_id": assistantMsg.ID, "duration": duration}).Info("[Execute] << done")
 	return &ExecuteResult{
 		ConversationID: conv.UUID,
 		Content:        content,
@@ -197,36 +201,32 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 }
 
 func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
-	l := log.WithFields(log.Fields{"agent": ag.Name, "conv_id": conv.ID, "mode": "function_calling"})
+	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
 	if err != nil {
-		l.WithError(err).Error("[ToolExec] load history failed")
+		l.WithError(err).Error("[LLM] load history failed")
 		return nil, err
 	}
-	l.WithField("history_count", len(history)).Info("[ToolExec] history loaded")
 
 	if err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0); err != nil {
-		l.WithError(err).Error("[ToolExec] save user message failed")
+		l.WithError(err).Error("[LLM] save user message failed")
 		return nil, err
 	}
 
 	lcTools := e.registry.BuildTrackedTools(agentTools, tracker)
 	lcTools = append(lcTools, subAgentLCTools...)
 	toolMap := make(map[string]tools.Tool, len(lcTools))
+	allToolNames := make([]string, 0, len(lcTools))
 	for _, t := range lcTools {
 		toolMap[t.Name()] = t
+		allToolNames = append(allToolNames, t.Name())
 	}
 
 	llmToolDefs := buildLLMToolDefs(agentTools, subAgentLCTools)
-	allToolNames := make([]string, 0, len(toolMap))
-	for name := range toolMap {
-		allToolNames = append(allToolNames, name)
-	}
-	l.WithFields(log.Fields{"tools": allToolNames, "provider": prov.Name, "model": ag.ModelName}).Info("[ToolExec] prepared function-calling tools")
 
 	messages := e.buildMessages(ag, skills, history, userMsg, allToolNames)
-	logMessages(l, "[ToolExec]", messages)
+	logMessages(l, messages)
 
 	opts := []llms.CallOption{
 		llms.WithTemperature(ag.Temperature),
@@ -239,13 +239,13 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	totalStart := time.Now()
 
 	for i := range maxIterations {
-		l.WithField("iteration", i+1).Info("[ToolExec] >>>>>> LLM call")
+		l.WithFields(log.Fields{"round": i + 1, "model": ag.ModelName}).Info("[LLM] >> call")
 		iterStart := time.Now()
 		resp, err := llmProv.GenerateContent(ctx, messages, opts...)
 		iterDur := time.Since(iterStart)
 
 		if err != nil {
-			l.WithFields(log.Fields{"iteration": i + 1, "duration": iterDur}).WithError(err).Error("[ToolExec] LLM call failed")
+			l.WithFields(log.Fields{"round": i + 1, "duration": iterDur}).WithError(err).Error("[LLM] << failed")
 			tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, "", model.StepError, err.Error(), iterDur, 0, &model.StepMetadata{
 				Provider:    prov.Name,
 				Model:       ag.ModelName,
@@ -255,7 +255,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		}
 
 		if len(resp.Choices) == 0 {
-			l.Warn("[ToolExec] empty response from LLM")
+			l.Warn("[LLM] << empty response")
 			break
 		}
 
@@ -264,19 +264,19 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		if len(choice.ToolCalls) == 0 {
 			finalContent = choice.Content
 			l.WithFields(log.Fields{
-				"iteration":   i + 1,
-				"duration":    iterDur,
-				"content_len": len(finalContent),
-				"preview":     truncateLog(finalContent, 300),
-			}).Info("[ToolExec] <<<<<< got final answer (no more tool calls)")
+				"round":    i + 1,
+				"duration": iterDur,
+				"len":      len(finalContent),
+				"preview":  truncateLog(finalContent, 200),
+			}).Info("[LLM] << final answer")
 			break
 		}
 
-		l.WithFields(log.Fields{
-			"iteration":       i + 1,
-			"tool_call_count": len(choice.ToolCalls),
-			"duration":        iterDur,
-		}).Info("[ToolExec] LLM requested tool calls")
+		tcNames := make([]string, 0, len(choice.ToolCalls))
+		for _, tc := range choice.ToolCalls {
+			tcNames = append(tcNames, tc.FunctionCall.Name)
+		}
+		l.WithFields(log.Fields{"round": i + 1, "duration": iterDur, "tool_calls": tcNames}).Info("[LLM] << tool calls requested")
 
 		aiParts := make([]llms.ContentPart, 0, len(choice.ToolCalls)+1)
 		if choice.Content != "" {
@@ -297,7 +297,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			tool, ok := toolMap[toolName]
 			if !ok {
 				errMsg := fmt.Sprintf("tool %q not found", toolName)
-				l.WithField("tool", toolName).Warn("[ToolExec] " + errMsg)
+				l.WithField("tool", toolName).Warn("[Tool] tool not registered, skipping")
 				messages = append(messages, llms.MessageContent{
 					Role: llms.ChatMessageTypeTool,
 					Parts: []llms.ContentPart{
@@ -307,14 +307,16 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 				continue
 			}
 
-			l.WithFields(log.Fields{"tool": toolName, "args": truncateLog(toolArgs, 300)}).Info("[ToolExec] >>> executing tool")
+			l.WithFields(log.Fields{"tool": toolName, "args": truncateLog(toolArgs, 200)}).Info("[Tool] >> invoke")
+			callStart := time.Now()
 			output, callErr := tool.Call(ctx, toolArgs)
+			callDur := time.Since(callStart)
 			toolResult := output
 			if callErr != nil {
 				toolResult = fmt.Sprintf("error: %s", callErr)
-				l.WithFields(log.Fields{"tool": toolName}).WithError(callErr).Error("[ToolExec] <<< tool failed")
+				l.WithFields(log.Fields{"tool": toolName, "duration": callDur}).WithError(callErr).Error("[Tool] << failed")
 			} else {
-				l.WithFields(log.Fields{"tool": toolName, "output_preview": truncateLog(output, 300)}).Info("[ToolExec] <<< tool succeeded")
+				l.WithFields(log.Fields{"tool": toolName, "duration": callDur, "preview": truncateLog(output, 200)}).Info("[Tool] << ok")
 			}
 
 			messages = append(messages, llms.MessageContent{
@@ -334,7 +336,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		Content:        finalContent,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
-		l.WithError(err).Error("[ToolExec] save assistant message failed")
+		l.WithError(err).Error("[Execute] save assistant message failed")
 		return nil, err
 	}
 
@@ -345,7 +347,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		Temperature: ag.Temperature,
 	})
 
-	l.WithFields(log.Fields{"msg_id": assistantMsg.ID, "steps": len(tracker.Steps()), "total_duration": totalDuration}).Info("[ToolExec] completed")
+	l.WithFields(log.Fields{"steps": len(tracker.Steps()), "duration": totalDuration}).Info("[Execute] << done")
 	return &ExecuteResult{
 		ConversationID: conv.UUID,
 		Content:        finalContent,
@@ -408,69 +410,66 @@ func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []tools.Tool) []llm
 }
 
 func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chunkHandler func(chunk model.StreamChunk) error) error {
-	l := log.WithFields(log.Fields{"agent_uuid": req.AgentID, "user_id": req.UserID, "mode": "stream"})
-	reqBody, _ := json.Marshal(req)
-	l.WithField("request_body", string(reqBody)).Info("[Stream] start")
-
 	ag, err := e.store.GetAgentByUUID(ctx, req.AgentID)
 	if err != nil {
-		l.WithError(err).Error("[Stream] agent not found")
+		log.WithField("agent_uuid", req.AgentID).WithError(err).Error("[Execute] agent not found")
 		return fmt.Errorf("agent not found: %w", err)
 	}
-	l = l.WithFields(log.Fields{"agent": ag.Name, "agent_id": ag.ID})
 
 	prov, err := e.store.GetProvider(ctx, ag.ProviderID)
 	if err != nil {
-		l.WithFields(log.Fields{"provider_id": ag.ProviderID}).WithError(err).Error("[Stream] provider not found")
+		log.WithFields(log.Fields{"agent": ag.Name, "provider_id": ag.ProviderID}).WithError(err).Error("[Execute] provider not found")
 		return fmt.Errorf("provider not found: %w", err)
 	}
-	l.WithFields(log.Fields{"provider": prov.Name, "model": ag.ModelName}).Info("[Stream] resolved provider")
+
+	l := log.WithFields(log.Fields{"agent": ag.Name, "provider": prov.Name, "model": ag.ModelName})
+	l.WithField("user", req.UserID).Info("[Execute] >> start (stream)")
 
 	llmProv, err := e.providerFactory(prov, ag.ModelName)
 	if err != nil {
-		l.WithError(err).Error("[Stream] create llm provider failed")
+		l.WithError(err).Error("[Execute] create llm provider failed")
 		return fmt.Errorf("create llm provider: %w", err)
 	}
 
 	skills, err := e.store.GetAgentSkills(ctx, ag.ID)
 	if err != nil {
-		l.WithError(err).Error("[Stream] get skills failed")
+		l.WithError(err).Error("[Execute] get skills failed")
 		return fmt.Errorf("get agent skills: %w", err)
 	}
 
 	agentTools, err := e.collectTools(ctx, ag.ID)
 	if err != nil {
-		l.WithError(err).Error("[Stream] collect tools failed")
+		l.WithError(err).Error("[Execute] collect tools failed")
 		return err
 	}
 
 	conv, err := e.memory.GetOrCreateConversation(ctx, req.ConversationID, ag.ID, req.UserID)
 	if err != nil {
-		l.WithError(err).Error("[Stream] get/create conversation failed")
+		l.WithError(err).Error("[Execute] get/create conversation failed")
 		return fmt.Errorf("get conversation: %w", err)
 	}
-	l = l.WithField("conv_id", conv.ID)
-	l.WithField("conv_uuid", conv.UUID).Info("[Stream] conversation ready")
 
 	tracker := NewStepTracker(e.store, conv.ID)
-
 	subAgentLCTools := e.buildSubAgentLCTools(ctx, ag.ID, tracker)
 
+	logResourceSummary(l, agentTools, skills, subAgentLCTools)
+
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
-		l.WithFields(log.Fields{"tool_count": len(agentTools), "sub_agent_count": len(subAgentLCTools)}).Info("[Stream] tools detected, using tool-augmented streaming")
+		l.Info("[Execute]    mode = stream + tool-augmented")
 		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, chunkHandler)
 	}
 
+	l.Info("[Execute]    mode = stream")
+	l = l.WithField("conv", conv.UUID)
+
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
 	if err != nil {
-		l.WithError(err).Error("[Stream] load history failed")
+		l.WithError(err).Error("[LLM] load history failed")
 		return err
 	}
-	l.WithField("history_count", len(history)).Info("[Stream] history loaded")
 
 	messages := e.buildMessages(ag, skills, history, req.Message, nil)
-	l.WithFields(log.Fields{"total_messages": len(messages), "skill_count": len(skills)}).Info("[Stream] messages built")
-	logMessages(l, "[Stream]", messages)
+	logMessages(l, messages)
 
 	opts := []llms.CallOption{
 		llms.WithTemperature(ag.Temperature),
@@ -491,17 +490,17 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 
 	if err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0); err != nil {
-		l.WithError(err).Error("[Stream] save user message failed")
+		l.WithError(err).Error("[LLM] save user message failed")
 		return err
 	}
 
-	l.WithFields(log.Fields{"provider": prov.Name, "model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[Stream] calling LLM (streaming)")
+	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call (stream)")
 	start := time.Now()
 	_, err = llmProv.StreamContent(ctx, messages, streamHandler, opts...)
 	duration := time.Since(start)
 
 	if err != nil {
-		l.WithFields(log.Fields{"duration": duration, "chunks_received": chunkCount}).WithError(err).Error("[Stream] LLM streaming failed")
+		l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount}).WithError(err).Error("[LLM] << failed")
 		tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, "", model.StepError, err.Error(), duration, 0, &model.StepMetadata{
 			Provider:    prov.Name,
 			Model:       ag.ModelName,
@@ -511,7 +510,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 
 	content := fullContent.String()
-	l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount, "response_len": len(content), "response_preview": truncateLog(content, 300)}).Info("[Stream] LLM streaming success")
+	l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
 
 	assistantMsg := &model.Message{
 		ConversationID: conv.ID,
@@ -519,7 +518,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		Content:        content,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
-		l.WithError(err).Error("[Stream] save assistant message failed")
+		l.WithError(err).Error("[Execute] save assistant message failed")
 		return err
 	}
 
@@ -530,7 +529,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		Temperature: ag.Temperature,
 	})
 
-	l.WithField("msg_id", assistantMsg.ID).Info("[Stream] completed")
+	l.WithField("duration", duration).Info("[Execute] << done")
 	return chunkHandler(model.StreamChunk{
 		ConversationID: conv.UUID,
 		Done:           true,
@@ -539,11 +538,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 }
 
 func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, chunkHandler func(chunk model.StreamChunk) error) error {
-	l := log.WithFields(log.Fields{"agent": ag.Name, "conv_id": conv.ID, "mode": "stream_tools"})
-
 	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker)
 	if err != nil {
-		l.WithError(err).Error("[StreamTools] tool execution failed")
 		return err
 	}
 
@@ -565,7 +561,6 @@ func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *m
 		lastStep = &last
 	}
 
-	l.WithField("response_len", len(content)).Info("[StreamTools] completed")
 	return chunkHandler(model.StreamChunk{
 		ConversationID: conv.UUID,
 		Done:           true,
@@ -595,23 +590,39 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 }
 
 func buildSystemPrompt(ag *model.Agent, skills []model.Skill, toolNames []string) string {
+	l := log.WithField("agent", ag.Name)
+
 	var sb strings.Builder
 	if ag.SystemPrompt != "" {
 		sb.WriteString(ag.SystemPrompt)
+		l.WithField("len", len(ag.SystemPrompt)).Debug("[Prompt]  base prompt loaded")
 	}
+
 	for _, sk := range skills {
-		if sk.Instruction != "" {
-			sb.WriteString("\n\n## Skill: " + sk.Name + "\n" + sk.Instruction)
+		if sk.Instruction == "" {
+			l.WithField("skill", sk.Name).Debug("[Prompt]  skill has no instruction, skipped")
+			continue
 		}
+		sb.WriteString("\n\n## Skill: " + sk.Name + "\n" + sk.Instruction)
+		l.WithFields(log.Fields{"skill": sk.Name, "len": len(sk.Instruction)}).Debug("[Prompt]  skill instruction injected")
 	}
+
 	if len(toolNames) > 0 {
 		sb.WriteString("\n\n## 工具使用策略\n")
 		sb.WriteString("你拥有以下工具: " + strings.Join(toolNames, ", ") + "\n")
 		sb.WriteString("请在回答问题时优先使用可用的工具来获取信息或执行操作，而不是仅依赖你的内置知识。\n")
 		sb.WriteString("思考步骤：1. 分析用户问题 2. 判断哪些工具可以帮助回答 3. 调用工具 4. 综合工具结果给出最终回答。\n")
 		sb.WriteString("如果问题可以通过工具获得更准确的答案，必须优先调用工具。\n")
+		l.WithField("tools", toolNames).Debug("[Prompt]  tool strategy injected")
 	}
-	return sb.String()
+
+	result := sb.String()
+	l.WithFields(log.Fields{
+		"total_len": len(result),
+		"skills":    len(skills),
+		"tools":     len(toolNames),
+	}).Debug("[Prompt]  system prompt built")
+	return result
 }
 
 func extractContent(resp *llms.ContentResponse) string {
@@ -715,7 +726,35 @@ func (e *Executor) buildSubAgentLCTools(ctx context.Context, agentID int64, trac
 	return result
 }
 
-func logMessages(l *log.Entry, prefix string, messages []llms.MessageContent) {
+func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Skill, subAgentTools []tools.Tool) {
+	toolNames := make([]string, 0, len(agentTools))
+	for _, t := range agentTools {
+		toolNames = append(toolNames, t.Name)
+	}
+	skillNames := make([]string, 0, len(skills))
+	for _, s := range skills {
+		skillNames = append(skillNames, s.Name)
+	}
+	subNames := make([]string, 0, len(subAgentTools))
+	for _, s := range subAgentTools {
+		subNames = append(subNames, s.Name())
+	}
+	l.WithFields(log.Fields{
+		"tools":      toolNames,
+		"skills":     skillNames,
+		"sub_agents": subNames,
+	}).Info("[Execute]    resources loaded")
+
+	for _, sk := range skills {
+		fields := log.Fields{"skill": sk.Name, "has_instruction": sk.Instruction != ""}
+		if sk.Instruction != "" {
+			fields["instruction_len"] = len(sk.Instruction)
+		}
+		l.WithFields(fields).Debug("[Execute]    skill detail")
+	}
+}
+
+func logMessages(l *log.Entry, messages []llms.MessageContent) {
 	for i, msg := range messages {
 		var textParts []string
 		for _, part := range msg.Parts {
@@ -725,10 +764,10 @@ func logMessages(l *log.Entry, prefix string, messages []llms.MessageContent) {
 		}
 		content := strings.Join(textParts, "")
 		l.WithFields(log.Fields{
-			"index":       i,
-			"role":        string(msg.Role),
-			"content_len": len(content),
-			"content":     truncateLog(content, 500),
-		}).Info(prefix + " llm_message")
+			"idx":  i,
+			"role": string(msg.Role),
+			"len":  len(content),
+			"text": truncateLog(content, 300),
+		}).Debug("[LLM]    message")
 	}
 }

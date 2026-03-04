@@ -91,8 +91,8 @@ type trackedTool struct {
 func (t *trackedTool) Name() string        { return t.baseTool.Name() }
 func (t *trackedTool) Description() string { return t.baseTool.Description() }
 func (t *trackedTool) Call(ctx context.Context, input string) (string, error) {
-	l := log.WithFields(log.Fields{"tool": t.name, "input_preview": truncateLog(input, 200)})
-	l.Info(">>> tool call start")
+	l := log.WithField("tool", t.name)
+	l.WithField("input", truncateLog(input, 200)).Debug("[Tool]    invoke args")
 
 	start := time.Now()
 	output, err := t.baseTool.Call(ctx, input)
@@ -103,9 +103,6 @@ func (t *trackedTool) Call(ctx context.Context, input string) (string, error) {
 	if err != nil {
 		status = model.StepError
 		errMsg = err.Error()
-		l.WithError(err).WithField("duration", duration).Error("<<< tool call failed")
-	} else {
-		l.WithFields(log.Fields{"duration": duration, "output_preview": truncateLog(output, 200)}).Info("<<< tool call success")
 	}
 
 	t.tracker.RecordStep(ctx, model.StepToolCall, t.name, input, output, status, errMsg, duration, 0, &model.StepMetadata{
