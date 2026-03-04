@@ -12,6 +12,7 @@ type Store interface {
 	ToolStore
 	SkillStore
 	ConversationStore
+	UserStore
 	Close() error
 }
 
@@ -72,4 +73,14 @@ type ConversationStore interface {
 	UpdateStepsMessageID(ctx context.Context, conversationID, messageID int64) error
 	ListExecutionSteps(ctx context.Context, messageID int64) ([]model.ExecutionStep, error)
 	ListExecutionStepsByConversation(ctx context.Context, conversationID int64) ([]model.ExecutionStep, error)
+}
+
+type UserStore interface {
+	CreateUser(ctx context.Context, u *model.User) error
+	GetUserByUsername(ctx context.Context, username string) (*model.User, error)
+	GetUser(ctx context.Context, id int64) (*model.User, error)
+	ListUsers(ctx context.Context, q model.ListQuery) ([]*model.User, int64, error)
+	UpdateUser(ctx context.Context, id int64, req model.UpdateUserReq) error
+	DeleteUser(ctx context.Context, id int64) error
+	HasAdmin(ctx context.Context) (bool, error)
 }

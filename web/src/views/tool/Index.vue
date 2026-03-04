@@ -8,7 +8,7 @@
             <el-input v-model="keyword" placeholder="搜索" clearable style="width: 200px; margin-right: 12px;" @clear="loadData" @keyup.enter="loadData">
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
-            <el-button type="primary" @click="openDialog()">
+            <el-button v-if="authStore.isAdmin" type="primary" @click="openDialog()">
               <el-icon><Plus /></el-icon> 新增
             </el-button>
           </div>
@@ -32,7 +32,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column label="操作" width="160" fixed="right">
+        <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
             <el-popconfirm title="确定删除？" @confirm="handleDelete(row.id)">
@@ -97,7 +97,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { toolApi, type Tool } from '../../api/tool'
+import { useAuthStore } from '@/stores/auth'
 
+const authStore = useAuthStore()
 const list = ref<Tool[]>([])
 const loading = ref(false)
 const total = ref(0)

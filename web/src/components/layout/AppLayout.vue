@@ -42,6 +42,10 @@
           <el-icon><Document /></el-icon>
           <template #title>执行日志</template>
         </el-menu-item>
+        <el-menu-item v-if="authStore.isAdmin" index="/users">
+          <el-icon><Avatar /></el-icon>
+          <template #title>用户管理</template>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -52,6 +56,13 @@
         </el-icon>
         <div class="header-right">
           <span class="header-title">AI Agent 管理平台</span>
+          <div class="user-area">
+            <el-tag :type="authStore.isAdmin ? 'primary' : 'info'" size="small" class="role-tag">
+              {{ authStore.isAdmin ? '超管' : '访客' }}
+            </el-tag>
+            <span class="username">{{ authStore.user?.username }}</span>
+            <el-button text type="danger" @click="handleLogout">退出</el-button>
+          </div>
         </div>
       </el-header>
       <el-main class="app-main">
@@ -63,10 +74,18 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 
 const route = useRoute()
+const router = useRouter()
+const authStore = useAuthStore()
 const isCollapse = ref(false)
+
+function handleLogout() {
+  authStore.logout()
+  router.push('/login')
+}
 </script>
 
 <style>
@@ -116,12 +135,28 @@ html, body, #app { height: 100%; }
   color: #409eff;
 }
 .header-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-left: 16px;
 }
 .header-title {
   font-size: 16px;
   font-weight: 500;
   color: #333;
+}
+.user-area {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.role-tag {
+  font-size: 12px;
+}
+.username {
+  font-size: 14px;
+  color: #666;
 }
 .app-main {
   background-color: #f5f7fa;

@@ -42,6 +42,14 @@ func NotFound(w http.ResponseWriter, msg string) {
 	Error(w, http.StatusNotFound, msg)
 }
 
+func Unauthorized(w http.ResponseWriter, msg string) {
+	Error(w, http.StatusUnauthorized, msg)
+}
+
+func Forbidden(w http.ResponseWriter, msg string) {
+	Error(w, http.StatusForbidden, msg)
+}
+
 func InternalError(w http.ResponseWriter, msg string) {
 	Error(w, http.StatusInternalServerError, msg)
 }

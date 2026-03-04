@@ -10,6 +10,12 @@ type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	Database DatabaseConfig `yaml:"database"`
 	Log      LogConfig      `yaml:"log"`
+	JWT      JWTConfig      `yaml:"jwt"`
+}
+
+type JWTConfig struct {
+	Secret      string `yaml:"secret"`
+	ExpireHours int    `yaml:"expire_hours"`
 }
 
 type ServerConfig struct {
@@ -45,6 +51,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.Database.MaxIdleConns == 0 {
 		cfg.Database.MaxIdleConns = 10
+	}
+	if cfg.JWT.Secret == "" {
+		cfg.JWT.Secret = "go-ai-agent-default-jwt-secret"
+	}
+	if cfg.JWT.ExpireHours == 0 {
+		cfg.JWT.ExpireHours = 24
 	}
 	return &cfg, nil
 }

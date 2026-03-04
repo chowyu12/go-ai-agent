@@ -330,6 +330,20 @@ func (s *mockStore) ListExecutionStepsByConversation(_ context.Context, convID i
 	return s.execSteps[convID], nil
 }
 
+// ==================== Mock UserStore (no-op) ====================
+
+func (s *mockStore) CreateUser(_ context.Context, _ *model.User) error          { return nil }
+func (s *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) {
+	return nil, nil
+}
+func (s *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)    { return nil, nil }
+func (s *mockStore) ListUsers(_ context.Context, _ model.ListQuery) ([]*model.User, int64, error) {
+	return nil, 0, nil
+}
+func (s *mockStore) UpdateUser(_ context.Context, _ int64, _ model.UpdateUserReq) error { return nil }
+func (s *mockStore) DeleteUser(_ context.Context, _ int64) error                        { return nil }
+func (s *mockStore) HasAdmin(_ context.Context) (bool, error)                           { return false, nil }
+
 // ==================== Mock LLM Provider ====================
 
 type mockLLMProvider struct {

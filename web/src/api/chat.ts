@@ -86,9 +86,10 @@ export function streamChat(
 ) {
   const controller = new AbortController()
 
+  const token = localStorage.getItem('token') || ''
   fetch('/api/v1/chat/stream', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify(data),
     signal: controller.signal,
   }).then(async (response) => {

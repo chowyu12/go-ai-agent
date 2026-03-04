@@ -50,6 +50,7 @@ func main() {
 
 	mux := http.NewServeMux()
 
+	handler.NewAuthHandler(store, cfg.JWT.Secret, cfg.JWT.ExpireHours).Register(mux)
 	handler.NewProviderHandler(store).Register(mux)
 	handler.NewAgentHandler(store).Register(mux)
 	handler.NewToolHandler(store).Register(mux)
@@ -58,7 +59,7 @@ func main() {
 
 	mountFrontend(mux)
 
-	wrapped := handler.Logger(handler.CORS(mux))
+	wrapped := handler.Logger(handler.CORS(handler.Auth(cfg.JWT.Secret)(mux)))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
