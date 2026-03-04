@@ -31,6 +31,9 @@
             <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="timeout" label="超时(秒)" width="100">
+          <template #default="{ row }">{{ row.timeout || 30 }}</template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
           <template #default="{ row }">
@@ -86,15 +89,16 @@
           <el-form-item label="工作目录">
             <el-input v-model="cmdConfig.working_dir" placeholder="留空使用默认目录" />
           </el-form-item>
-          <el-form-item label="超时(秒)">
-            <el-input-number v-model="cmdConfig.timeout" :min="1" :max="300" />
-          </el-form-item>
           <el-form-item label="Shell">
             <el-input v-model="cmdConfig.shell" placeholder="/bin/sh" />
           </el-form-item>
         </template>
         <el-form-item label="Function Def">
           <el-input v-model="form.function_def_str" type="textarea" :rows="6" placeholder="OpenAI Function Calling JSON Schema" />
+        </el-form-item>
+        <el-form-item label="超时(秒)">
+          <el-input-number v-model="form.timeout" :min="5" :max="300" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px;">默认 30 秒</span>
         </el-form-item>
         <el-form-item label="启用">
           <el-switch v-model="form.enabled" />
@@ -126,7 +130,7 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const form = ref<any>({})
 const httpConfig = reactive({ url: '', method: 'POST', headers: {} })
-const cmdConfig = reactive({ command: '', working_dir: '', timeout: 30, shell: '/bin/sh' })
+const cmdConfig = reactive({ command: '', working_dir: '', shell: '/bin/sh' })
 
 function handlerTagType(type: string) {
   const m: Record<string, string> = { builtin: 'success', http: 'warning', command: '', script: 'info' }
@@ -158,12 +162,12 @@ function openDialog(row?: Tool) {
       Object.assign(httpConfig, row.handler_config)
     }
     if (row.handler_type === 'command' && row.handler_config) {
-      Object.assign(cmdConfig, { command: '', working_dir: '', timeout: 30, shell: '/bin/sh', ...row.handler_config as any })
+      Object.assign(cmdConfig, { command: '', working_dir: '', shell: '/bin/sh', ...row.handler_config as any })
     }
   } else {
-    form.value = { name: '', description: '', handler_type: 'builtin', enabled: true, function_def_str: '' }
+    form.value = { name: '', description: '', handler_type: 'builtin', enabled: true, timeout: 30, function_def_str: '' }
     Object.assign(httpConfig, { url: '', method: 'POST', headers: {} })
-    Object.assign(cmdConfig, { command: '', working_dir: '', timeout: 30, shell: '/bin/sh' })
+    Object.assign(cmdConfig, { command: '', working_dir: '', shell: '/bin/sh' })
   }
   dialogVisible.value = true
 }

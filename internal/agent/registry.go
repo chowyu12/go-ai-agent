@@ -74,11 +74,12 @@ func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
 		if json.Unmarshal(td.HandlerConfig, &cfg) != nil {
 			return nil
 		}
+		timeout := td.TimeoutSeconds()
 		return &dynamicTool{
 			toolName: td.Name,
 			toolDesc: td.Description,
 			handler: func(ctx context.Context, input string) (string, error) {
-				return httpToolHandler(ctx, cfg, input)
+				return httpToolHandler(ctx, cfg, timeout, input)
 			},
 		}
 	case model.HandlerCommand:
@@ -86,11 +87,12 @@ func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
 		if json.Unmarshal(td.HandlerConfig, &cfg) != nil {
 			return nil
 		}
+		timeout := td.TimeoutSeconds()
 		return &dynamicTool{
 			toolName: td.Name,
 			toolDesc: td.Description,
 			handler: func(ctx context.Context, input string) (string, error) {
-				return commandToolHandler(ctx, cfg, input)
+				return commandToolHandler(ctx, cfg, timeout, input)
 			},
 		}
 	default:
@@ -146,7 +148,7 @@ func (t *dynamicTool) Call(ctx context.Context, input string) (string, error) { 
 
 var _ tools.Tool = (*dynamicTool)(nil)
 
-func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, input string) (string, error) {
+func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, timeoutSec int, input string) (string, error) {
 	urlStr := cfg.URL
 	method := cfg.Method
 	if method == "" {
@@ -170,6 +172,10 @@ func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, input str
 		body = strings.NewReader(bodyStr)
 	}
 
+	timeout := time.Duration(timeoutSec) * time.Second
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	req, err := http.NewRequestWithContext(ctx, method, urlStr, body)
 	if err != nil {
 		return "", fmt.Errorf("create request: %w", err)
@@ -178,7 +184,8 @@ func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, input str
 		req.Header.Set(k, v)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: timeout}
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("http call: %w", err)
 	}
@@ -264,7 +271,7 @@ func checkDangerousCommand(cmdStr string) error {
 	return nil
 }
 
-func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, input string) (string, error) {
+func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, timeoutSec int, input string) (string, error) {
 	cmdStr := cfg.Command
 
 	var params map[string]any
@@ -280,11 +287,7 @@ func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, inp
 		return "", err
 	}
 
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = 30
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()
 
 	shell := cfg.Shell
@@ -301,7 +304,7 @@ func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, inp
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	log.WithFields(log.Fields{"command": cmdStr, "shell": shell, "timeout": timeout}).Info("[Tool] >> exec command")
+	log.WithFields(log.Fields{"command": cmdStr, "shell": shell, "timeout": timeoutSec}).Info("[Tool] >> exec command")
 	err := cmd.Run()
 
 	result := stdout.String()

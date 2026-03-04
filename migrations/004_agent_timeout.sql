@@ -1,0 +1,1 @@
+ALTER TABLE `agents` ADD COLUMN `timeout` INT UNSIGNED NOT NULL DEFAULT 120 COMMENT '执行超时(秒)' AFTER `max_tokens`;

@@ -23,8 +23,18 @@ type Tool struct {
 	HandlerType   HandlerType     `json:"handler_type"`
 	HandlerConfig json.RawMessage `json:"handler_config,omitzero"`
 	Enabled       bool            `json:"enabled"`
+	Timeout       int             `json:"timeout"`
 	CreatedAt     time.Time       `json:"created_at"`
 	UpdatedAt     time.Time       `json:"updated_at"`
+}
+
+const DefaultToolTimeout = 30
+
+func (t *Tool) TimeoutSeconds() int {
+	if t.Timeout > 0 {
+		return t.Timeout
+	}
+	return DefaultToolTimeout
 }
 
 type CreateToolReq struct {
@@ -34,6 +44,7 @@ type CreateToolReq struct {
 	HandlerType   HandlerType     `json:"handler_type"`
 	HandlerConfig json.RawMessage `json:"handler_config,omitzero"`
 	Enabled       *bool           `json:"enabled,omitzero"`
+	Timeout       int             `json:"timeout"`
 }
 
 type UpdateToolReq struct {
@@ -43,6 +54,7 @@ type UpdateToolReq struct {
 	HandlerType   *HandlerType    `json:"handler_type,omitzero"`
 	HandlerConfig json.RawMessage `json:"handler_config,omitzero"`
 	Enabled       *bool           `json:"enabled,omitzero"`
+	Timeout       *int            `json:"timeout,omitzero"`
 }
 
 type HTTPHandlerConfig struct {

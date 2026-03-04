@@ -22,6 +22,7 @@
         <el-table-column prop="model_name" label="模型" width="160" />
         <el-table-column prop="temperature" label="温度" width="80" />
         <el-table-column prop="max_tokens" label="Max Tokens" width="110" />
+        <el-table-column prop="timeout" label="超时(秒)" width="100" />
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
           <template #default="{ row }">
@@ -96,6 +97,10 @@
         </el-form-item>
         <el-form-item label="Max Tokens">
           <el-input-number v-model="form.max_tokens" :min="1" :max="128000" />
+        </el-form-item>
+        <el-form-item label="超时(秒)">
+          <el-input-number v-model="form.timeout" :min="10" :max="600" />
+          <span style="margin-left: 8px; color: #909399; font-size: 12px;">默认 120 秒</span>
         </el-form-item>
 
         <el-divider content-position="left">关联配置</el-divider>
@@ -287,7 +292,7 @@ async function openDialog(row?: Agent) {
     form.value = {
       name: '', description: '', system_prompt: '',
       provider_id: null, model_name: '',
-      temperature: 0.7, max_tokens: 2048,
+      temperature: 0.7, max_tokens: 2048, timeout: 120,
       tool_ids: [], skill_ids: [], child_ids: [],
     }
     providerModels.value = []

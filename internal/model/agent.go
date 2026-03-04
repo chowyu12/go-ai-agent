@@ -12,12 +12,22 @@ type Agent struct {
 	ModelName    string    `json:"model_name"`
 	Temperature  float64   `json:"temperature"`
 	MaxTokens    int       `json:"max_tokens"`
+	Timeout      int       `json:"timeout"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 
 	Tools    []Tool  `json:"tools,omitzero"`
 	Skills   []Skill `json:"skills,omitzero"`
 	Children []Agent `json:"children,omitzero"`
+}
+
+const DefaultAgentTimeout = 120
+
+func (a *Agent) TimeoutSeconds() int {
+	if a.Timeout > 0 {
+		return a.Timeout
+	}
+	return DefaultAgentTimeout
 }
 
 type CreateAgentReq struct {
@@ -28,6 +38,7 @@ type CreateAgentReq struct {
 	ModelName    string  `json:"model_name"`
 	Temperature  float64 `json:"temperature"`
 	MaxTokens    int     `json:"max_tokens"`
+	Timeout      int     `json:"timeout"`
 	ToolIDs      []int64 `json:"tool_ids,omitzero"`
 	SkillIDs     []int64 `json:"skill_ids,omitzero"`
 	ChildIDs     []int64 `json:"child_ids,omitzero"`
@@ -41,6 +52,7 @@ type UpdateAgentReq struct {
 	ModelName    *string  `json:"model_name,omitzero"`
 	Temperature  *float64 `json:"temperature,omitzero"`
 	MaxTokens    *int     `json:"max_tokens,omitzero"`
+	Timeout      *int     `json:"timeout,omitzero"`
 	ToolIDs      []int64  `json:"tool_ids,omitzero"`
 	SkillIDs     []int64  `json:"skill_ids,omitzero"`
 	ChildIDs     []int64  `json:"child_ids,omitzero"`

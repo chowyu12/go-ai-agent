@@ -87,6 +87,10 @@ export function streamChat(
   onError: (err: string) => void,
 ) {
   const controller = new AbortController()
+  const clientTimeout = setTimeout(() => {
+    controller.abort()
+    onError('请求超时 (150s)')
+  }, 150_000)
 
   const token = localStorage.getItem('token') || ''
   fetch('/api/v1/chat/stream', {
@@ -106,6 +110,7 @@ export function streamChat(
     }
     const decoder = new TextDecoder()
     let buffer = ''
+    let currentEvent = ''
 
     while (true) {
       const { done, value } = await reader.read()
@@ -116,6 +121,10 @@ export function streamChat(
       buffer = lines.pop() || ''
 
       for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim()
+          continue
+        }
         if (line.startsWith('data: ')) {
           const payload = line.slice(6).trim()
           if (payload === '[DONE]') {
@@ -123,11 +132,20 @@ export function streamChat(
             return
           }
           try {
+            if (currentEvent === 'error') {
+              const errData = JSON.parse(payload)
+              onError(errData.error || 'unknown error')
+              return
+            }
             const chunk: StreamChunk = JSON.parse(payload)
             onChunk(chunk)
           } catch {
             // skip invalid JSON
           }
+          currentEvent = ''
+        }
+        if (line === '') {
+          currentEvent = ''
         }
       }
     }
@@ -136,6 +154,8 @@ export function streamChat(
     if (err.name !== 'AbortError') {
       onError(err.message)
     }
+  }).finally(() => {
+    clearTimeout(clientTimeout)
   })
 
   return controller

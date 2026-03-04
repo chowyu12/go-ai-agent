@@ -13,8 +13,8 @@ func (s *MySQLStore) CreateAgent(ctx context.Context, a *model.Agent) error {
 		a.UUID = uuid.New().String()
 	}
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens) VALUES (?,?,?,?,?,?,?,?)`,
-		a.UUID, a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens,
+		`INSERT INTO agents (uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout) VALUES (?,?,?,?,?,?,?,?,?)`,
+		a.UUID, a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout,
 	)
 	if err != nil {
 		return err
@@ -27,8 +27,8 @@ func (s *MySQLStore) CreateAgent(ctx context.Context, a *model.Agent) error {
 func (s *MySQLStore) GetAgent(ctx context.Context, id int64) (*model.Agent, error) {
 	var a model.Agent
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, created_at, updated_at FROM agents WHERE id = ?`, id,
-	).Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.CreatedAt, &a.UpdatedAt)
+		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, created_at, updated_at FROM agents WHERE id = ?`, id,
+	).Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -38,8 +38,8 @@ func (s *MySQLStore) GetAgent(ctx context.Context, id int64) (*model.Agent, erro
 func (s *MySQLStore) GetAgentByUUID(ctx context.Context, uid string) (*model.Agent, error) {
 	var a model.Agent
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, created_at, updated_at FROM agents WHERE uuid = ?`, uid,
-	).Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.CreatedAt, &a.UpdatedAt)
+		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, created_at, updated_at FROM agents WHERE uuid = ?`, uid,
+	).Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (s *MySQLStore) ListAgents(ctx context.Context, q model.ListQuery) ([]*mode
 
 	offset, limit := paginate(q)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, created_at, updated_at FROM agents`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
+		`SELECT id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, created_at, updated_at FROM agents`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		append(args, limit, offset)...,
 	)
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *MySQLStore) ListAgents(ctx context.Context, q model.ListQuery) ([]*mode
 	var list []*model.Agent
 	for rows.Next() {
 		var a model.Agent
-		if err := rows.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		list = append(list, &a)
@@ -105,9 +105,12 @@ func (s *MySQLStore) UpdateAgent(ctx context.Context, id int64, req model.Update
 	if req.MaxTokens != nil {
 		a.MaxTokens = *req.MaxTokens
 	}
+	if req.Timeout != nil {
+		a.Timeout = *req.Timeout
+	}
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE agents SET name=?, description=?, system_prompt=?, provider_id=?, model_name=?, temperature=?, max_tokens=? WHERE id=?`,
-		a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, id,
+		`UPDATE agents SET name=?, description=?, system_prompt=?, provider_id=?, model_name=?, temperature=?, max_tokens=?, timeout=? WHERE id=?`,
+		a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout, id,
 	)
 	return err
 }
@@ -139,7 +142,7 @@ func (s *MySQLStore) SetAgentTools(ctx context.Context, agentID int64, toolIDs [
 
 func (s *MySQLStore) GetAgentTools(ctx context.Context, agentID int64) ([]model.Tool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT t.id, t.uuid, t.name, t.description, t.function_def, t.handler_type, t.handler_config, t.enabled, t.created_at, t.updated_at
+		`SELECT t.id, t.uuid, t.name, t.description, t.function_def, t.handler_type, t.handler_config, t.enabled, t.timeout, t.created_at, t.updated_at
 		 FROM tools t INNER JOIN agent_tools at2 ON t.id = at2.tool_id WHERE at2.agent_id = ?`, agentID,
 	)
 	if err != nil {
@@ -171,7 +174,7 @@ func (s *MySQLStore) SetAgentChildren(ctx context.Context, agentID int64, childI
 
 func (s *MySQLStore) GetAgentChildren(ctx context.Context, agentID int64) ([]model.Agent, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT a.id, a.uuid, a.name, a.description, a.system_prompt, a.provider_id, a.model_name, a.temperature, a.max_tokens, a.created_at, a.updated_at
+		`SELECT a.id, a.uuid, a.name, a.description, a.system_prompt, a.provider_id, a.model_name, a.temperature, a.max_tokens, a.timeout, a.created_at, a.updated_at
 		 FROM agents a INNER JOIN agent_children ac ON a.id = ac.child_id WHERE ac.parent_id = ?`, agentID,
 	)
 	if err != nil {
@@ -182,7 +185,7 @@ func (s *MySQLStore) GetAgentChildren(ctx context.Context, agentID int64) ([]mod
 	var list []model.Agent
 	for rows.Next() {
 		var a model.Agent
-		if err := rows.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			return nil, err
 		}
 		list = append(list, a)
@@ -213,7 +216,7 @@ func scanTools(rows *sql.Rows) ([]model.Tool, error) {
 	for rows.Next() {
 		var t model.Tool
 		var funcDef, handlerCfg sql.NullString
-		if err := rows.Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.Timeout, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		if funcDef.Valid {

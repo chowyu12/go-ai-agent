@@ -101,8 +101,6 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	logResourceSummary(l, agentTools, skills, subAgentLCTools)
 	l.WithFields(log.Fields{"conv": conv.UUID}).Debug("[Execute]    conversation ready")
 
-	e.recordSkillSteps(ctx, skills, toolSkillMap, tracker)
-
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
 		l.Info("[Execute]    mode = tool-augmented")
 		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap)
@@ -142,6 +140,9 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 }
 
 func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
+	defer cancel()
+
 	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
@@ -207,6 +208,9 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 }
 
 func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string) (*ExecuteResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
+	defer cancel()
+
 	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
@@ -242,6 +246,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 
 	const maxIterations = 10
 	var finalContent string
+	calledTools := make(map[string]bool)
 	totalStart := time.Now()
 
 	for i := range maxIterations {
@@ -314,6 +319,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			}
 
 			l.WithFields(log.Fields{"tool": toolName, "args": truncateLog(toolArgs, 200)}).Info("[Tool] >> invoke")
+			calledTools[toolName] = true
 			callStart := time.Now()
 			output, callErr := tool.Call(ctx, toolArgs)
 			callDur := time.Since(callStart)
@@ -333,6 +339,8 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			})
 		}
 	}
+
+	e.recordUsedSkillSteps(ctx, skills, toolSkillMap, calledTools, tracker)
 
 	totalDuration := time.Since(totalStart)
 
@@ -469,12 +477,14 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 				Step:           &step,
 			})
 		})
-		e.recordSkillSteps(ctx, skills, toolSkillMap, tracker)
 		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler)
 	}
 
 	l.Info("[Execute]    mode = stream")
 	l = l.WithField("conv", conv.UUID)
+
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
+	defer cancel()
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
 	if err != nil {
@@ -601,38 +611,41 @@ func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *m
 	})
 }
 
-func (e *Executor) recordSkillSteps(ctx context.Context, skills []model.Skill, toolSkillMap map[string]string, tracker *StepTracker) {
+func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skill, toolSkillMap map[string]string, calledTools map[string]bool, tracker *StepTracker) {
+	usedSkills := make(map[string]bool)
+	for toolName := range calledTools {
+		if skillName, ok := toolSkillMap[toolName]; ok {
+			usedSkills[skillName] = true
+		}
+	}
+
 	for _, sk := range skills {
-		var contributedTools []string
-		for toolName, skillName := range toolSkillMap {
-			if skillName == sk.Name {
-				contributedTools = append(contributedTools, toolName)
-			}
+		if !usedSkills[sk.Name] {
+			continue
 		}
 
-		hasInstruction := sk.Instruction != ""
-		if !hasInstruction && len(contributedTools) == 0 {
-			continue
+		var calledToolNames []string
+		for toolName, skillName := range toolSkillMap {
+			if skillName == sk.Name && calledTools[toolName] {
+				calledToolNames = append(calledToolNames, toolName)
+			}
 		}
 
 		input := sk.Instruction
 		if input == "" {
 			input = "(no instruction)"
 		}
-		output := fmt.Sprintf("contributed %d tools", len(contributedTools))
-		if len(contributedTools) > 0 {
-			output += ": " + strings.Join(contributedTools, ", ")
-		}
+		output := fmt.Sprintf("used %d tools: %s", len(calledToolNames), strings.Join(calledToolNames, ", "))
 
 		tracker.RecordStep(ctx, model.StepSkillMatch, sk.Name, input, output, model.StepSuccess, "", 0, 0, &model.StepMetadata{
 			SkillName:  sk.Name,
-			SkillTools: contributedTools,
+			SkillTools: calledToolNames,
 		})
 
 		log.WithFields(log.Fields{
-			"skill": sk.Name,
-			"tools": contributedTools,
-		}).Info("[Skill] skill activated")
+			"skill":      sk.Name,
+			"used_tools": calledToolNames,
+		}).Info("[Skill] skill used")
 	}
 }
 

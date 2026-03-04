@@ -16,8 +16,8 @@ func (s *MySQLStore) CreateTool(ctx context.Context, t *model.Tool) error {
 	funcDef, _ := json.Marshal(t.FunctionDef)
 	handlerCfg, _ := json.Marshal(t.HandlerConfig)
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO tools (uuid, name, description, function_def, handler_type, handler_config, enabled) VALUES (?,?,?,?,?,?,?)`,
-		t.UUID, t.Name, t.Description, funcDef, t.HandlerType, handlerCfg, t.Enabled,
+		`INSERT INTO tools (uuid, name, description, function_def, handler_type, handler_config, enabled, timeout) VALUES (?,?,?,?,?,?,?,?)`,
+		t.UUID, t.Name, t.Description, funcDef, t.HandlerType, handlerCfg, t.Enabled, t.Timeout,
 	)
 	if err != nil {
 		return err
@@ -31,8 +31,8 @@ func (s *MySQLStore) GetTool(ctx context.Context, id int64) (*model.Tool, error)
 	var t model.Tool
 	var funcDef, handlerCfg sql.NullString
 	err := s.db.QueryRowContext(ctx,
-		`SELECT id, uuid, name, description, function_def, handler_type, handler_config, enabled, created_at, updated_at FROM tools WHERE id = ?`, id,
-	).Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.CreatedAt, &t.UpdatedAt)
+		`SELECT id, uuid, name, description, function_def, handler_type, handler_config, enabled, timeout, created_at, updated_at FROM tools WHERE id = ?`, id,
+	).Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.Timeout, &t.CreatedAt, &t.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -59,7 +59,7 @@ func (s *MySQLStore) ListTools(ctx context.Context, q model.ListQuery) ([]*model
 
 	offset, limit := paginate(q)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, uuid, name, description, function_def, handler_type, handler_config, enabled, created_at, updated_at FROM tools`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
+		`SELECT id, uuid, name, description, function_def, handler_type, handler_config, enabled, timeout, created_at, updated_at FROM tools`+where+` ORDER BY id DESC LIMIT ? OFFSET ?`,
 		append(args, limit, offset)...,
 	)
 	if err != nil {
@@ -71,7 +71,7 @@ func (s *MySQLStore) ListTools(ctx context.Context, q model.ListQuery) ([]*model
 	for rows.Next() {
 		var t model.Tool
 		var funcDef, handlerCfg sql.NullString
-		if err := rows.Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		if err := rows.Scan(&t.ID, &t.UUID, &t.Name, &t.Description, &funcDef, &t.HandlerType, &handlerCfg, &t.Enabled, &t.Timeout, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, 0, err
 		}
 		if funcDef.Valid {
@@ -108,11 +108,14 @@ func (s *MySQLStore) UpdateTool(ctx context.Context, id int64, req model.UpdateT
 	if req.Enabled != nil {
 		t.Enabled = *req.Enabled
 	}
+	if req.Timeout != nil {
+		t.Timeout = *req.Timeout
+	}
 	funcDef, _ := json.Marshal(t.FunctionDef)
 	handlerCfg, _ := json.Marshal(t.HandlerConfig)
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE tools SET name=?, description=?, function_def=?, handler_type=?, handler_config=?, enabled=? WHERE id=?`,
-		t.Name, t.Description, funcDef, t.HandlerType, handlerCfg, t.Enabled, id,
+		`UPDATE tools SET name=?, description=?, function_def=?, handler_type=?, handler_config=?, enabled=?, timeout=? WHERE id=?`,
+		t.Name, t.Description, funcDef, t.HandlerType, handlerCfg, t.Enabled, t.Timeout, id,
 	)
 	return err
 }

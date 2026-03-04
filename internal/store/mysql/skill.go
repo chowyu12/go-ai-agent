@@ -112,7 +112,7 @@ func (s *MySQLStore) SetSkillTools(ctx context.Context, skillID int64, toolIDs [
 
 func (s *MySQLStore) GetSkillTools(ctx context.Context, skillID int64) ([]model.Tool, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT t.id, t.uuid, t.name, t.description, t.function_def, t.handler_type, t.handler_config, t.enabled, t.created_at, t.updated_at
+		`SELECT t.id, t.uuid, t.name, t.description, t.function_def, t.handler_type, t.handler_config, t.enabled, t.timeout, t.created_at, t.updated_at
 		 FROM tools t INNER JOIN skill_tools st ON t.id = st.tool_id WHERE st.skill_id = ?`, skillID,
 	)
 	if err != nil {
