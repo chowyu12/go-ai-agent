@@ -40,7 +40,7 @@ func (r *ToolRegistry) RegisterBuiltin(name string, handler BuiltinHandler) {
 	r.builtins[name] = handler
 }
 
-func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTracker) []tools.Tool {
+func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTracker, toolSkillMap map[string]string) []tools.Tool {
 	var result []tools.Tool
 	for _, td := range toolDefs {
 		if !td.Enabled {
@@ -52,9 +52,10 @@ func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTra
 			continue
 		}
 		result = append(result, &trackedTool{
-			baseTool: baseTool,
-			name:     td.Name,
-			tracker:  tracker,
+			baseTool:  baseTool,
+			name:      td.Name,
+			skillName: toolSkillMap[td.Name],
+			tracker:   tracker,
 		})
 	}
 	return result
@@ -98,15 +99,19 @@ func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
 }
 
 type trackedTool struct {
-	baseTool tools.Tool
-	name     string
-	tracker  *StepTracker
+	baseTool  tools.Tool
+	name      string
+	skillName string
+	tracker   *StepTracker
 }
 
 func (t *trackedTool) Name() string        { return t.baseTool.Name() }
 func (t *trackedTool) Description() string { return t.baseTool.Description() }
 func (t *trackedTool) Call(ctx context.Context, input string) (string, error) {
 	l := log.WithField("tool", t.name)
+	if t.skillName != "" {
+		l = l.WithField("skill", t.skillName)
+	}
 	l.WithField("input", truncateLog(input, 200)).Debug("[Tool]    invoke args")
 
 	start := time.Now()
@@ -121,7 +126,8 @@ func (t *trackedTool) Call(ctx context.Context, input string) (string, error) {
 	}
 
 	t.tracker.RecordStep(ctx, model.StepToolCall, t.name, input, output, status, errMsg, duration, 0, &model.StepMetadata{
-		ToolName: t.name,
+		ToolName:  t.name,
+		SkillName: t.skillName,
 	})
 	return output, err
 }

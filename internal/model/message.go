@@ -32,9 +32,10 @@ type Message struct {
 type StepType string
 
 const (
-	StepLLMCall   StepType = "llm_call"
-	StepToolCall  StepType = "tool_call"
-	StepAgentCall StepType = "agent_call"
+	StepLLMCall    StepType = "llm_call"
+	StepToolCall   StepType = "tool_call"
+	StepAgentCall  StepType = "agent_call"
+	StepSkillMatch StepType = "skill_match"
 )
 
 type StepStatus string
@@ -63,12 +64,14 @@ type ExecutionStep struct {
 }
 
 type StepMetadata struct {
-	Provider    string  `json:"provider,omitzero"`
-	Model       string  `json:"model,omitzero"`
-	Temperature float64 `json:"temperature,omitzero"`
-	ToolName    string  `json:"tool_name,omitzero"`
-	AgentUUID   string  `json:"agent_uuid,omitzero"`
-	AgentName   string  `json:"agent_name,omitzero"`
+	Provider    string   `json:"provider,omitzero"`
+	Model       string   `json:"model,omitzero"`
+	Temperature float64  `json:"temperature,omitzero"`
+	ToolName    string   `json:"tool_name,omitzero"`
+	SkillName   string   `json:"skill_name,omitzero"`
+	SkillTools  []string `json:"skill_tools,omitzero"`
+	AgentUUID   string   `json:"agent_uuid,omitzero"`
+	AgentName   string   `json:"agent_name,omitzero"`
 }
 
 type ChatRequest struct {

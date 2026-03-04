@@ -1154,12 +1154,15 @@ func TestCollectTools(t *testing.T) {
 	s.SetSkillTools(ctx, sk.ID, []int64{skillTool.ID})
 
 	exec := newTestExecutor(s, NewToolRegistry(), &mockLLMProvider{})
-	tools, err := exec.collectTools(ctx, agent.ID)
+	tools, toolSkillMap, err := exec.collectTools(ctx, agent.ID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(tools) != 2 {
 		t.Fatalf("expected 2 tools, got %d", len(tools))
+	}
+	if toolSkillMap["skill_tool"] != sk.Name {
+		t.Errorf("expected skill_tool mapped to %q, got %q", sk.Name, toolSkillMap["skill_tool"])
 	}
 
 	names := make(map[string]bool)
@@ -1217,7 +1220,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 		toolDefs := []model.Tool{
 			{Name: "current_time", Description: "get time", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
-		tools := registry.BuildTrackedTools(toolDefs, tracker)
+		tools := registry.BuildTrackedTools(toolDefs, tracker, nil)
 		if len(tools) != 1 {
 			t.Fatalf("expected 1 tool, got %d", len(tools))
 		}
@@ -1238,7 +1241,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 		toolDefs := []model.Tool{
 			{Name: "current_time", HandlerType: model.HandlerBuiltin, Enabled: false},
 		}
-		tools := registry.BuildTrackedTools(toolDefs, tracker)
+		tools := registry.BuildTrackedTools(toolDefs, tracker, nil)
 		if len(tools) != 0 {
 			t.Errorf("expected 0 tools, got %d", len(tools))
 		}
@@ -1249,7 +1252,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 		toolDefs := []model.Tool{
 			{Name: "nonexistent_builtin", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
-		tools := registry.BuildTrackedTools(toolDefs, tracker)
+		tools := registry.BuildTrackedTools(toolDefs, tracker, nil)
 		if len(tools) != 0 {
 			t.Errorf("expected 0 tools, got %d", len(tools))
 		}
@@ -1261,7 +1264,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 		toolDefs := []model.Tool{
 			{Name: "uuid_generator", Description: "gen uuid", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
-		tools := registry.BuildTrackedTools(toolDefs, tracker)
+		tools := registry.BuildTrackedTools(toolDefs, tracker, nil)
 		if len(tools) != 1 {
 			t.Fatal("expected 1 tool")
 		}

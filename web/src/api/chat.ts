@@ -13,7 +13,7 @@ export interface ExecutionStep {
   message_id: number
   conversation_id: number
   step_order: number
-  step_type: 'llm_call' | 'tool_call' | 'agent_call'
+  step_type: 'llm_call' | 'tool_call' | 'agent_call' | 'skill_match'
   name: string
   input: string
   output: string
@@ -26,6 +26,8 @@ export interface ExecutionStep {
     model?: string
     temperature?: number
     tool_name?: string
+    skill_name?: string
+    skill_tools?: string[]
     agent_uuid?: string
     agent_name?: string
   }

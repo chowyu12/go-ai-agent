@@ -77,7 +77,7 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 		return nil, fmt.Errorf("create llm provider: %w", err)
 	}
 
-	agentTools, err := e.collectTools(ctx, ag.ID)
+	agentTools, toolSkillMap, err := e.collectTools(ctx, ag.ID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] collect tools failed")
 		return nil, err
@@ -101,39 +101,44 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	logResourceSummary(l, agentTools, skills, subAgentLCTools)
 	l.WithFields(log.Fields{"conv": conv.UUID}).Debug("[Execute]    conversation ready")
 
+	e.recordSkillSteps(ctx, skills, toolSkillMap, tracker)
+
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
 		l.Info("[Execute]    mode = tool-augmented")
-		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker)
+		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap)
 	}
 	l.Info("[Execute]    mode = simple")
 	return e.executeSimple(ctx, ag, prov, llmProv, conv, skills, req.Message, tracker)
 }
 
-func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Tool, error) {
+func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Tool, map[string]string, error) {
 	agentTools, err := e.store.GetAgentTools(ctx, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("get agent tools: %w", err)
+		return nil, nil, fmt.Errorf("get agent tools: %w", err)
 	}
+
+	toolSkillMap := make(map[string]string)
 
 	skills, err := e.store.GetAgentSkills(ctx, agentID)
 	if err != nil {
-		return nil, fmt.Errorf("get agent skills: %w", err)
+		return nil, nil, fmt.Errorf("get agent skills: %w", err)
 	}
 	for _, sk := range skills {
 		skillTools, err := e.store.GetSkillTools(ctx, sk.ID)
 		if err != nil {
-			return nil, fmt.Errorf("get skill tools: %w", err)
+			return nil, nil, fmt.Errorf("get skill tools: %w", err)
 		}
 		if len(skillTools) > 0 {
 			names := make([]string, 0, len(skillTools))
 			for _, t := range skillTools {
 				names = append(names, t.Name)
+				toolSkillMap[t.Name] = sk.Name
 			}
 			log.WithFields(log.Fields{"skill": sk.Name, "tools": names}).Debug("[Execute]    skill contributed tools")
 		}
 		agentTools = append(agentTools, skillTools...)
 	}
-	return agentTools, nil
+	return agentTools, toolSkillMap, nil
 }
 
 func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
@@ -201,7 +206,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}, nil
 }
 
-func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
+func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string) (*ExecuteResult, error) {
 	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
 	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
@@ -215,7 +220,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		return nil, err
 	}
 
-	lcTools := e.registry.BuildTrackedTools(agentTools, tracker)
+	lcTools := e.registry.BuildTrackedTools(agentTools, tracker, toolSkillMap)
 	lcTools = append(lcTools, subAgentLCTools...)
 	toolMap := make(map[string]tools.Tool, len(lcTools))
 	allToolNames := make([]string, 0, len(lcTools))
@@ -438,7 +443,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		return fmt.Errorf("get agent skills: %w", err)
 	}
 
-	agentTools, err := e.collectTools(ctx, ag.ID)
+	agentTools, toolSkillMap, err := e.collectTools(ctx, ag.ID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] collect tools failed")
 		return err
@@ -464,7 +469,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 				Step:           &step,
 			})
 		})
-		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, chunkHandler)
+		e.recordSkillSteps(ctx, skills, toolSkillMap, tracker)
+		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler)
 	}
 
 	l.Info("[Execute]    mode = stream")
@@ -571,8 +577,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	})
 }
 
-func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, chunkHandler func(chunk model.StreamChunk) error) error {
-	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker)
+func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, chunkHandler func(chunk model.StreamChunk) error) error {
+	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker, toolSkillMap)
 	if err != nil {
 		return err
 	}
@@ -593,6 +599,41 @@ func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *m
 		ConversationID: conv.UUID,
 		Done:           true,
 	})
+}
+
+func (e *Executor) recordSkillSteps(ctx context.Context, skills []model.Skill, toolSkillMap map[string]string, tracker *StepTracker) {
+	for _, sk := range skills {
+		var contributedTools []string
+		for toolName, skillName := range toolSkillMap {
+			if skillName == sk.Name {
+				contributedTools = append(contributedTools, toolName)
+			}
+		}
+
+		hasInstruction := sk.Instruction != ""
+		if !hasInstruction && len(contributedTools) == 0 {
+			continue
+		}
+
+		input := sk.Instruction
+		if input == "" {
+			input = "(no instruction)"
+		}
+		output := fmt.Sprintf("contributed %d tools", len(contributedTools))
+		if len(contributedTools) > 0 {
+			output += ": " + strings.Join(contributedTools, ", ")
+		}
+
+		tracker.RecordStep(ctx, model.StepSkillMatch, sk.Name, input, output, model.StepSuccess, "", 0, 0, &model.StepMetadata{
+			SkillName:  sk.Name,
+			SkillTools: contributedTools,
+		})
+
+		log.WithFields(log.Fields{
+			"skill": sk.Name,
+			"tools": contributedTools,
+		}).Info("[Skill] skill activated")
+	}
 }
 
 func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string) []llms.MessageContent {

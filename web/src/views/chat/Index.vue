@@ -74,6 +74,8 @@
                           <span v-if="step.metadata.provider">Provider: {{ step.metadata.provider }}</span>
                           <span v-if="step.metadata.model">Model: {{ step.metadata.model }}</span>
                           <span v-if="step.metadata.temperature">Temp: {{ step.metadata.temperature }}</span>
+                          <span v-if="step.metadata.skill_name">Skill: {{ step.metadata.skill_name }}</span>
+                          <span v-if="step.metadata.skill_tools?.length">Tools: {{ step.metadata.skill_tools.join(', ') }}</span>
                         </div>
                       </div>
                     </div>
@@ -130,6 +132,8 @@
                         <span v-if="step.metadata.provider">Provider: {{ step.metadata.provider }}</span>
                         <span v-if="step.metadata.model">Model: {{ step.metadata.model }}</span>
                         <span v-if="step.metadata.tool_name">Tool: {{ step.metadata.tool_name }}</span>
+                        <span v-if="step.metadata.skill_name">Skill: {{ step.metadata.skill_name }}</span>
+                        <span v-if="step.metadata.skill_tools?.length">Tools: {{ step.metadata.skill_tools.join(', ') }}</span>
                       </div>
                     </div>
                   </transition>
@@ -207,6 +211,10 @@ const pendingSteps = ref<ExecutionStep[]>([])
 onMounted(async () => {
   const res: any = await agentApi.list({ page: 1, page_size: 100 })
   agents.value = res.data?.list || []
+  const first = agents.value[0]
+  if (first && !selectedAgentUUID.value) {
+    selectedAgentUUID.value = first.uuid
+  }
 })
 
 watch(selectedAgentUUID, () => {
@@ -310,6 +318,7 @@ function stepTypeLabel(t: string) {
     case 'llm_call': return 'LLM'
     case 'tool_call': return 'Tool'
     case 'agent_call': return 'Agent'
+    case 'skill_match': return 'Skill'
     default: return t
   }
 }
@@ -319,6 +328,7 @@ function stepTagType(t: string): '' | 'success' | 'warning' | 'danger' | 'info' 
     case 'llm_call': return ''
     case 'tool_call': return 'warning'
     case 'agent_call': return 'success'
+    case 'skill_match': return 'info'
     default: return 'info'
   }
 }
@@ -584,6 +594,9 @@ function truncateText(text: string, maxLen: number): string {
 }
 .wf-badge--agent_call {
   background: linear-gradient(135deg, #2dd4a8, #00b894);
+}
+.wf-badge--skill_match {
+  background: linear-gradient(135deg, #a78bfa, #7c3aed);
 }
 .wf-badge--thinking {
   background: #c0c4cc;

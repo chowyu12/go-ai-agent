@@ -100,6 +100,12 @@
                                 <span v-if="step.metadata.tool_name">
                                   Tool: {{ step.metadata.tool_name }}
                                 </span>
+                                <span v-if="step.metadata.skill_name">
+                                  Skill: {{ step.metadata.skill_name }}
+                                </span>
+                                <span v-if="step.metadata.skill_tools?.length">
+                                  Skill Tools: {{ step.metadata.skill_tools.join(', ') }}
+                                </span>
                               </div>
                             </div>
                           </el-timeline-item>
@@ -238,6 +244,7 @@ function stepTypeLabel(t: string) {
     case 'llm_call': return 'LLM'
     case 'tool_call': return 'Tool'
     case 'agent_call': return 'Agent'
+    case 'skill_match': return 'Skill'
     default: return t
   }
 }
@@ -247,6 +254,7 @@ function stepTagType(t: string): '' | 'success' | 'warning' | 'danger' | 'info' 
     case 'llm_call': return ''
     case 'tool_call': return 'warning'
     case 'agent_call': return 'success'
+    case 'skill_match': return 'info'
     default: return 'info'
   }
 }
