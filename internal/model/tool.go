@@ -11,6 +11,7 @@ const (
 	HandlerBuiltin HandlerType = "builtin"
 	HandlerHTTP    HandlerType = "http"
 	HandlerScript  HandlerType = "script"
+	HandlerCommand HandlerType = "command"
 )
 
 type Tool struct {
@@ -49,4 +50,11 @@ type HTTPHandlerConfig struct {
 	Method  string            `json:"method"`
 	Headers map[string]string `json:"headers,omitzero"`
 	Body    string            `json:"body,omitzero"`
+}
+
+type CommandHandlerConfig struct {
+	Command    string `json:"command"`
+	WorkingDir string `json:"working_dir,omitzero"`
+	Timeout    int    `json:"timeout,omitzero"`
+	Shell      string `json:"shell,omitzero"`
 }

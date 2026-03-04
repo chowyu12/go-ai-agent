@@ -290,6 +290,114 @@ func defaultTools() []model.Tool {
 				},
 			}),
 		},
+		{
+			Name:        "shell_exec",
+			Description: "在本地服务器上执行 Shell 命令并返回输出结果。支持任意命令，超时 30 秒。",
+			HandlerType: model.HandlerCommand,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "shell_exec",
+				"description": "Execute a shell command on the local server and return the output",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"command": map[string]any{
+							"type":        "string",
+							"description": "The shell command to execute, e.g., 'ls -la', 'date', 'whoami'",
+						},
+					},
+					"required": []string{"command"},
+				},
+			}),
+			HandlerConfig: mustJSON(model.CommandHandlerConfig{
+				Command: "{command}",
+				Timeout: 30,
+			}),
+		},
+		{
+			Name:        "disk_usage",
+			Description: "查看服务器磁盘使用情况。",
+			HandlerType: model.HandlerCommand,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "disk_usage",
+				"description": "Check disk usage of the server",
+				"parameters": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
+				},
+			}),
+			HandlerConfig: mustJSON(model.CommandHandlerConfig{
+				Command: "df -h",
+				Timeout: 10,
+			}),
+		},
+		{
+			Name:        "system_info",
+			Description: "获取服务器系统信息，包括主机名、系统版本、运行时间、负载等。",
+			HandlerType: model.HandlerCommand,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "system_info",
+				"description": "Get server system information including hostname, OS version, uptime and load",
+				"parameters": map[string]any{
+					"type":       "object",
+					"properties": map[string]any{},
+				},
+			}),
+			HandlerConfig: mustJSON(model.CommandHandlerConfig{
+				Command: "uname -a && uptime",
+				Timeout: 10,
+			}),
+		},
+		{
+			Name:        "list_files",
+			Description: "列出指定目录下的文件和目录。",
+			HandlerType: model.HandlerCommand,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "list_files",
+				"description": "List files and directories in the specified path",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "The directory path to list, e.g., '/tmp', '.'",
+						},
+					},
+					"required": []string{"path"},
+				},
+			}),
+			HandlerConfig: mustJSON(model.CommandHandlerConfig{
+				Command: "ls -lah {path}",
+				Timeout: 10,
+			}),
+		},
+		{
+			Name:        "read_file",
+			Description: "读取指定文件的内容。",
+			HandlerType: model.HandlerCommand,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "read_file",
+				"description": "Read the content of a file",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"path": map[string]any{
+							"type":        "string",
+							"description": "The file path to read",
+						},
+					},
+					"required": []string{"path"},
+				},
+			}),
+			HandlerConfig: mustJSON(model.CommandHandlerConfig{
+				Command: "cat {path}",
+				Timeout: 10,
+			}),
+		},
 	}
 }
 

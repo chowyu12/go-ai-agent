@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"bytes"
 	"crypto/md5"
 	"crypto/sha1"
 	"crypto/sha256"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math/rand/v2"
 	"net/http"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -76,6 +78,18 @@ func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
 			toolDesc: td.Description,
 			handler: func(ctx context.Context, input string) (string, error) {
 				return httpToolHandler(ctx, cfg, input)
+			},
+		}
+	case model.HandlerCommand:
+		var cfg model.CommandHandlerConfig
+		if json.Unmarshal(td.HandlerConfig, &cfg) != nil {
+			return nil
+		}
+		return &dynamicTool{
+			toolName: td.Name,
+			toolDesc: td.Description,
+			handler: func(ctx context.Context, input string) (string, error) {
+				return commandToolHandler(ctx, cfg, input)
 			},
 		}
 	default:
@@ -175,6 +189,132 @@ func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, input str
 		return "", fmt.Errorf("read response: %w", err)
 	}
 	return string(respBody), nil
+}
+
+var dangerousPatterns = []string{
+	"rm -rf /",
+	"rm -rf /*",
+	"rm -rf ~",
+	"mkfs",
+	"dd if=",
+	":(){:|:&};:",
+	"> /dev/sda",
+	"chmod -R 777 /",
+	"chown -R",
+	"shutdown",
+	"reboot",
+	"halt",
+	"poweroff",
+	"init 0",
+	"init 6",
+	"kill -9 1",
+	"killall",
+	"pkill",
+	"ssh-keygen",
+	"ssh ",
+	"scp ",
+	"sftp ",
+	"telnet ",
+	"nc -l",
+	"ncat -l",
+	"curl.*|.*sh",
+	"wget.*|.*sh",
+	"useradd",
+	"userdel",
+	"usermod",
+	"passwd",
+	"visudo",
+	"iptables -F",
+	"iptables -X",
+	"nft flush",
+	"crontab -r",
+	"systemctl disable",
+	"service.*stop",
+	"eval ",
+	"exec ",
+	"nohup ",
+	"> /etc/",
+	"tee /etc/",
+	"mount ",
+	"umount ",
+	"fdisk ",
+	"parted ",
+	"wipefs",
+}
+
+func checkDangerousCommand(cmdStr string) error {
+	lower := strings.ToLower(strings.TrimSpace(cmdStr))
+	for _, p := range dangerousPatterns {
+		if strings.Contains(lower, strings.ToLower(p)) {
+			return fmt.Errorf("dangerous command blocked: contains '%s'", p)
+		}
+	}
+	for _, seg := range strings.Split(lower, "|") {
+		seg = strings.TrimSpace(seg)
+		if strings.HasPrefix(seg, "rm ") && (strings.Contains(seg, " -r") || strings.Contains(seg, " -f")) {
+			return fmt.Errorf("dangerous command blocked: recursive/force rm is not allowed")
+		}
+	}
+	return nil
+}
+
+func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, input string) (string, error) {
+	cmdStr := cfg.Command
+
+	var params map[string]any
+	if input != "" {
+		json.Unmarshal([]byte(input), &params)
+	}
+	for key, val := range params {
+		cmdStr = strings.ReplaceAll(cmdStr, "{"+key+"}", fmt.Sprint(val))
+	}
+
+	if err := checkDangerousCommand(cmdStr); err != nil {
+		log.WithFields(log.Fields{"command": cmdStr, "reason": err}).Warn("[Tool] !! command blocked by safety check")
+		return "", err
+	}
+
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 30
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
+	defer cancel()
+
+	shell := cfg.Shell
+	if shell == "" {
+		shell = "/bin/sh"
+	}
+
+	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
+	if cfg.WorkingDir != "" {
+		cmd.Dir = cfg.WorkingDir
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	log.WithFields(log.Fields{"command": cmdStr, "shell": shell, "timeout": timeout}).Info("[Tool] >> exec command")
+	err := cmd.Run()
+
+	result := stdout.String()
+	if stderr.Len() > 0 {
+		result += "\n[stderr]\n" + stderr.String()
+	}
+
+	const maxOutput = 10_000
+	if len(result) > maxOutput {
+		result = result[:maxOutput] + "\n... (output truncated)"
+	}
+
+	if err != nil {
+		log.WithFields(log.Fields{"command": cmdStr, "error": err}).Warn("[Tool] << command failed")
+		return result, fmt.Errorf("command failed: %w", err)
+	}
+
+	log.WithField("command", cmdStr).Info("[Tool] << command ok")
+	return result, nil
 }
 
 func extractJSONField(jsonStr, field string) string {

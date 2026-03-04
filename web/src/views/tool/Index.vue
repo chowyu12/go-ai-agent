@@ -21,8 +21,8 @@
         <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
         <el-table-column prop="handler_type" label="类型" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.handler_type === 'builtin' ? 'success' : row.handler_type === 'http' ? 'warning' : 'info'" size="small">
-              {{ row.handler_type }}
+            <el-tag :type="handlerTagType(row.handler_type)" size="small">
+              {{ handlerLabel(row.handler_type) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -64,6 +64,7 @@
           <el-select v-model="form.handler_type" placeholder="选择类型" style="width: 100%">
             <el-option label="内置函数 (builtin)" value="builtin" />
             <el-option label="HTTP 回调 (http)" value="http" />
+            <el-option label="命令行 (command)" value="command" />
             <el-option label="脚本 (script)" value="script" />
           </el-select>
         </el-form-item>
@@ -76,6 +77,20 @@
               <el-option label="POST" value="POST" />
               <el-option label="GET" value="GET" />
             </el-select>
+          </el-form-item>
+        </template>
+        <template v-if="form.handler_type === 'command'">
+          <el-form-item label="命令模板" required>
+            <el-input v-model="cmdConfig.command" placeholder="ls -la {path}，用 {param} 引用 LLM 传入的参数" />
+          </el-form-item>
+          <el-form-item label="工作目录">
+            <el-input v-model="cmdConfig.working_dir" placeholder="留空使用默认目录" />
+          </el-form-item>
+          <el-form-item label="超时(秒)">
+            <el-input-number v-model="cmdConfig.timeout" :min="1" :max="300" />
+          </el-form-item>
+          <el-form-item label="Shell">
+            <el-input v-model="cmdConfig.shell" placeholder="/bin/sh" />
           </el-form-item>
         </template>
         <el-form-item label="Function Def">
@@ -111,6 +126,16 @@ const dialogVisible = ref(false)
 const submitting = ref(false)
 const form = ref<any>({})
 const httpConfig = reactive({ url: '', method: 'POST', headers: {} })
+const cmdConfig = reactive({ command: '', working_dir: '', timeout: 30, shell: '/bin/sh' })
+
+function handlerTagType(type: string) {
+  const m: Record<string, string> = { builtin: 'success', http: 'warning', command: '', script: 'info' }
+  return m[type] || 'info'
+}
+function handlerLabel(type: string) {
+  const m: Record<string, string> = { builtin: 'builtin', http: 'http', command: 'command', script: 'script' }
+  return m[type] || type
+}
 
 async function loadData() {
   loading.value = true
@@ -132,9 +157,13 @@ function openDialog(row?: Tool) {
     if (row.handler_type === 'http' && row.handler_config) {
       Object.assign(httpConfig, row.handler_config)
     }
+    if (row.handler_type === 'command' && row.handler_config) {
+      Object.assign(cmdConfig, { command: '', working_dir: '', timeout: 30, shell: '/bin/sh', ...row.handler_config as any })
+    }
   } else {
     form.value = { name: '', description: '', handler_type: 'builtin', enabled: true, function_def_str: '' }
     Object.assign(httpConfig, { url: '', method: 'POST', headers: {} })
+    Object.assign(cmdConfig, { command: '', working_dir: '', timeout: 30, shell: '/bin/sh' })
   }
   dialogVisible.value = true
 }
@@ -149,6 +178,9 @@ async function handleSubmit() {
     delete data.function_def_str
     if (data.handler_type === 'http') {
       data.handler_config = { ...httpConfig }
+    }
+    if (data.handler_type === 'command') {
+      data.handler_config = { ...cmdConfig }
     }
     if (data.id) {
       await toolApi.update(data.id, data)
