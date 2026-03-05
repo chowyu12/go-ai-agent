@@ -1,0 +1,1557 @@
+openapi: 3.0.3
+info:
+  title: Go AI Agent API
+  description: AI Agent 管理平台 API，支持多模型 Provider、Agent 编排、Tool/Skill 管理、流式对话及文件上传。
+  version: 1.0.0
+
+servers:
+  - url: /api/v1
+    description: API base path
+
+tags:
+  - name: Auth
+    description: 认证与用户管理
+  - name: Provider
+    description: 模型提供商管理
+  - name: Agent
+    description: Agent 管理
+  - name: Tool
+    description: 工具管理
+  - name: Skill
+    description: 技能管理
+  - name: Chat
+    description: 对话与会话
+  - name: File
+    description: 文件管理
+
+security:
+  - BearerAuth: []
+
+paths:
+  # ==================== Auth ====================
+  /auth/setup-check:
+    get:
+      tags: [Auth]
+      summary: 检查系统是否已初始化
+      security: []
+      responses:
+        "200":
+          description: 初始化状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: object
+                        properties:
+                          initialized:
+                            type: boolean
+
+  /auth/setup:
+    post:
+      tags: [Auth]
+      summary: 首次创建超级管理员
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginReq"
+      responses:
+        "200":
+          description: 创建成功并返回 token
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/LoginResp"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 用户登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginReq"
+      responses:
+        "200":
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/LoginResp"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: 获取当前登录用户信息
+      responses:
+        "200":
+          description: 当前用户信息
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/UserInfo"
+
+  /users:
+    get:
+      tags: [Auth]
+      summary: 用户列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+      responses:
+        "200":
+          description: 分页用户列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/UserPageData"
+    post:
+      tags: [Auth]
+      summary: 创建用户（需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateUserReq"
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/User"
+
+  /users/{id}:
+    put:
+      tags: [Auth]
+      summary: 更新用户（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateUserReq"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+    delete:
+      tags: [Auth]
+      summary: 删除用户（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  # ==================== Provider ====================
+  /providers:
+    get:
+      tags: [Provider]
+      summary: Provider 列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+      responses:
+        "200":
+          description: 分页 Provider 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/ProviderPageData"
+    post:
+      tags: [Provider]
+      summary: 创建 Provider（需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProviderReq"
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Provider"
+
+  /providers/{id}:
+    get:
+      tags: [Provider]
+      summary: 获取 Provider 详情
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Provider 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Provider"
+    put:
+      tags: [Provider]
+      summary: 更新 Provider（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateProviderReq"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+    delete:
+      tags: [Provider]
+      summary: 删除 Provider（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  /providers/{id}/models:
+    get:
+      tags: [Provider]
+      summary: 获取 Provider 本地模型列表
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: 模型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          type: string
+
+  /providers/{id}/models/remote:
+    get:
+      tags: [Provider]
+      summary: 远程拉取 Provider 可用模型列表
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: 远程模型列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          type: string
+
+  # ==================== Agent ====================
+  /agents:
+    get:
+      tags: [Agent]
+      summary: Agent 列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+      responses:
+        "200":
+          description: 分页 Agent 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/AgentPageData"
+    post:
+      tags: [Agent]
+      summary: 创建 Agent（需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateAgentReq"
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Agent"
+
+  /agents/{id}:
+    get:
+      tags: [Agent]
+      summary: 获取 Agent 详情（含关联的 tools、skills、children）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Agent 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Agent"
+    put:
+      tags: [Agent]
+      summary: 更新 Agent（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateAgentReq"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+    delete:
+      tags: [Agent]
+      summary: 删除 Agent（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  # ==================== Tool ====================
+  /tools:
+    get:
+      tags: [Tool]
+      summary: Tool 列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+      responses:
+        "200":
+          description: 分页 Tool 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/ToolPageData"
+    post:
+      tags: [Tool]
+      summary: 创建 Tool（需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateToolReq"
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Tool"
+
+  /tools/{id}:
+    get:
+      tags: [Tool]
+      summary: 获取 Tool 详情
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Tool 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Tool"
+    put:
+      tags: [Tool]
+      summary: 更新 Tool（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateToolReq"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+    delete:
+      tags: [Tool]
+      summary: 删除 Tool（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  # ==================== Skill ====================
+  /skills:
+    get:
+      tags: [Skill]
+      summary: Skill 列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+      responses:
+        "200":
+          description: 分页 Skill 列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/SkillPageData"
+    post:
+      tags: [Skill]
+      summary: 创建 Skill（需管理员）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSkillReq"
+      responses:
+        "200":
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Skill"
+
+  /skills/{id}:
+    get:
+      tags: [Skill]
+      summary: 获取 Skill 详情（含关联的 tools）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: Skill 详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/Skill"
+    put:
+      tags: [Skill]
+      summary: 更新 Skill（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateSkillReq"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+    delete:
+      tags: [Skill]
+      summary: 删除 Skill（需管理员）
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  # ==================== Chat ====================
+  /chat/completions:
+    post:
+      tags: [Chat]
+      summary: 非流式对话
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: 对话响应
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/ChatResponse"
+
+  /chat/stream:
+    post:
+      tags: [Chat]
+      summary: SSE 流式对话
+      description: |
+        使用 Server-Sent Events 返回流式响应。
+
+        **事件类型**：
+        - `event: message` + `data: StreamChunk` — 流式内容和执行步骤
+        - `event: error` + `data: {"error": "..."}` — 错误
+        - `data: [DONE]` — 流结束
+
+        **StreamChunk 字段说明**：
+        - `conversation_id`：首个 chunk 返回会话 ID
+        - `delta`：增量文本
+        - `step` / `steps`：执行步骤（tool_call / llm_call / agent_call / skill_match）
+        - `done: true`：本轮对话完成
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatRequest"
+      responses:
+        "200":
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema:
+                $ref: "#/components/schemas/StreamChunk"
+
+  /conversations:
+    get:
+      tags: [Chat]
+      summary: 会话列表
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PageSize"
+        - $ref: "#/components/parameters/Keyword"
+        - name: agent_id
+          in: query
+          schema:
+            type: integer
+            format: int64
+          description: 按 Agent ID 筛选
+        - name: user_id
+          in: query
+          schema:
+            type: string
+          description: 按用户 ID 筛选
+      responses:
+        "200":
+          description: 分页会话列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/ConversationPageData"
+
+  /conversations/{id}:
+    delete:
+      tags: [Chat]
+      summary: 删除会话
+      description: 同时删除关联的消息和执行步骤
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+  /conversations/{id}/messages:
+    get:
+      tags: [Chat]
+      summary: 获取会话消息列表
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+          description: 返回消息数量上限
+        - name: with_steps
+          in: query
+          schema:
+            type: string
+            enum: ["true"]
+          description: 是否包含 assistant 消息的执行步骤
+      responses:
+        "200":
+          description: 消息列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Message"
+
+  /conversations/{id}/steps:
+    get:
+      tags: [Chat]
+      summary: 获取会话所有执行步骤
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: 执行步骤列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ExecutionStep"
+
+  /messages/{id}/steps:
+    get:
+      tags: [Chat]
+      summary: 获取单条消息的执行步骤
+      parameters:
+        - $ref: "#/components/parameters/PathID"
+      responses:
+        "200":
+          description: 执行步骤列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/ExecutionStep"
+
+  # ==================== File ====================
+  /files:
+    post:
+      tags: [File]
+      summary: 上传文件
+      description: |
+        支持文本、文档（PDF/DOCX/XLSX）和图片上传。
+        非图片文件会自动提取文本内容用于对话上下文。
+        最大文件大小默认 20MB。
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 上传的文件
+                conversation_id:
+                  type: integer
+                  format: int64
+                  description: 关联的会话 ID（可选）
+      responses:
+        "200":
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        $ref: "#/components/schemas/FileInfo"
+    get:
+      tags: [File]
+      summary: 按会话列出文件
+      parameters:
+        - name: conversation_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+          description: 会话 ID
+      responses:
+        "200":
+          description: 文件列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/Response"
+                  - properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/FileInfo"
+
+  /files/{uuid}:
+    get:
+      tags: [File]
+      summary: 下载/预览文件
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 文件 UUID
+      responses:
+        "200":
+          description: 文件内容
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+    delete:
+      tags: [File]
+      summary: 删除文件
+      parameters:
+        - name: uuid
+          in: path
+          required: true
+          schema:
+            type: string
+          description: 文件 UUID
+      responses:
+        "200":
+          $ref: "#/components/responses/OK"
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "JWT Token，通过 /auth/login 获取"
+
+  parameters:
+    PathID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        default: 1
+    PageSize:
+      name: page_size
+      in: query
+      schema:
+        type: integer
+        default: 20
+    Keyword:
+      name: keyword
+      in: query
+      schema:
+        type: string
+
+  responses:
+    OK:
+      description: 操作成功
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Response"
+
+  schemas:
+    # ===== Common =====
+    Response:
+      type: object
+      properties:
+        code:
+          type: integer
+          description: "0=成功, -1=失败"
+          example: 0
+        message:
+          type: string
+          example: ok
+        data:
+          description: 响应数据
+
+    # ===== Auth =====
+    LoginReq:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          example: admin123
+
+    LoginResp:
+      type: object
+      properties:
+        token:
+          type: string
+          description: JWT Token
+        user:
+          $ref: "#/components/schemas/UserInfo"
+
+    UserInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, guest]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        username:
+          type: string
+        role:
+          type: string
+          enum: [admin, guest]
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateUserReq:
+      type: object
+      required: [username, password, role]
+      properties:
+        username:
+          type: string
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, guest]
+
+    UpdateUserReq:
+      type: object
+      properties:
+        password:
+          type: string
+        role:
+          type: string
+          enum: [admin, guest]
+        enabled:
+          type: boolean
+
+    UserPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/User"
+        total:
+          type: integer
+          format: int64
+
+    # ===== Provider =====
+    Provider:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+          example: OpenAI
+        type:
+          type: string
+          enum: [openai, qwen, kimi, openrouter, newapi]
+        base_url:
+          type: string
+          example: https://api.openai.com/v1
+        api_key:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+          description: 本地保存的模型列表
+        enabled:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateProviderReq:
+      type: object
+      required: [name, type, base_url, api_key]
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [openai, qwen, kimi, openrouter, newapi]
+        base_url:
+          type: string
+        api_key:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+
+    UpdateProviderReq:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [openai, qwen, kimi, openrouter, newapi]
+        base_url:
+          type: string
+        api_key:
+          type: string
+        models:
+          type: array
+          items:
+            type: string
+        enabled:
+          type: boolean
+
+    ProviderPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/Provider"
+        total:
+          type: integer
+          format: int64
+
+    # ===== Agent =====
+    Agent:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        provider_id:
+          type: integer
+          format: int64
+        model_name:
+          type: string
+        temperature:
+          type: number
+          format: double
+        max_tokens:
+          type: integer
+        timeout:
+          type: integer
+          description: 执行超时（秒），默认 120
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tool"
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+        children:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+
+    CreateAgentReq:
+      type: object
+      required: [name, provider_id, model_name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        provider_id:
+          type: integer
+          format: int64
+        model_name:
+          type: string
+        temperature:
+          type: number
+          format: double
+          default: 0.7
+        max_tokens:
+          type: integer
+          default: 2048
+        timeout:
+          type: integer
+          default: 120
+        tool_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        skill_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        child_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    UpdateAgentReq:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        system_prompt:
+          type: string
+        provider_id:
+          type: integer
+          format: int64
+        model_name:
+          type: string
+        temperature:
+          type: number
+          format: double
+        max_tokens:
+          type: integer
+        timeout:
+          type: integer
+        tool_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        skill_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+        child_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    AgentPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/Agent"
+        total:
+          type: integer
+          format: int64
+
+    # ===== Tool =====
+    Tool:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        function_def:
+          type: object
+          description: OpenAI Function Calling 格式的函数定义
+        handler_type:
+          type: string
+          enum: [builtin, http, script, command]
+        handler_config:
+          type: object
+          description: 处理器配置（HTTP/Command 等）
+        enabled:
+          type: boolean
+        timeout:
+          type: integer
+          description: 工具执行超时（秒），默认 30
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    CreateToolReq:
+      type: object
+      required: [name, description, handler_type]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        function_def:
+          type: object
+        handler_type:
+          type: string
+          enum: [builtin, http, script, command]
+        handler_config:
+          type: object
+        timeout:
+          type: integer
+          default: 30
+
+    UpdateToolReq:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        function_def:
+          type: object
+        handler_type:
+          type: string
+          enum: [builtin, http, script, command]
+        handler_config:
+          type: object
+        enabled:
+          type: boolean
+        timeout:
+          type: integer
+
+    ToolPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tool"
+        total:
+          type: integer
+          format: int64
+
+    # ===== Skill =====
+    Skill:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+          format: uuid
+        name:
+          type: string
+        description:
+          type: string
+        instruction:
+          type: string
+          description: 注入到 system prompt 的技能指令
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/Tool"
+
+    CreateSkillReq:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        instruction:
+          type: string
+        tool_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    UpdateSkillReq:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        instruction:
+          type: string
+        tool_ids:
+          type: array
+          items:
+            type: integer
+            format: int64
+
+    SkillPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/Skill"
+        total:
+          type: integer
+          format: int64
+
+    # ===== Chat =====
+    ChatFile:
+      type: object
+      required: [type, transfer_method]
+      properties:
+        type:
+          type: string
+          enum: [document, image, audio, video, custom]
+          description: 文件类型
+        transfer_method:
+          type: string
+          enum: [remote_url, local_file]
+          description: 传递方式
+        url:
+          type: string
+          description: 文件地址（transfer_method=remote_url 时）
+        upload_file_id:
+          type: string
+          description: 上传文件 ID（transfer_method=local_file 时）
+
+    ChatRequest:
+      type: object
+      required: [agent_id, message]
+      properties:
+        agent_id:
+          type: string
+          description: Agent UUID
+        conversation_id:
+          type: string
+          description: 会话 UUID（留空则创建新会话）
+        user_id:
+          type: string
+          description: 用户标识
+        message:
+          type: string
+          description: 用户消息
+        stream:
+          type: boolean
+          default: false
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChatFile"
+          description: 附带的文件列表
+
+    ChatResponse:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        message:
+          type: string
+        tokens_used:
+          type: integer
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionStep"
+
+    StreamChunk:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        delta:
+          type: string
+          description: 增量文本
+        done:
+          type: boolean
+        step:
+          $ref: "#/components/schemas/ExecutionStep"
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionStep"
+
+    Conversation:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+        agent_id:
+          type: integer
+          format: int64
+        user_id:
+          type: string
+        title:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ConversationPageData:
+      type: object
+      properties:
+        list:
+          type: array
+          items:
+            $ref: "#/components/schemas/Conversation"
+        total:
+          type: integer
+          format: int64
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        role:
+          type: string
+          enum: [user, assistant, system, tool]
+        content:
+          type: string
+        tool_calls:
+          type: object
+          description: Function calling 信息
+        tool_call_id:
+          type: string
+        tokens_used:
+          type: integer
+        parent_step_id:
+          type: integer
+          format: int64
+        created_at:
+          type: string
+          format: date-time
+        steps:
+          type: array
+          items:
+            $ref: "#/components/schemas/ExecutionStep"
+          description: 关联的执行步骤（需 with_steps=true）
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/FileInfo"
+          description: 关联的文件附件
+
+    ExecutionStep:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        message_id:
+          type: integer
+          format: int64
+        conversation_id:
+          type: integer
+          format: int64
+        step_order:
+          type: integer
+        step_type:
+          type: string
+          enum: [llm_call, tool_call, agent_call, skill_match]
+        name:
+          type: string
+        input:
+          type: string
+        output:
+          type: string
+        status:
+          type: string
+          enum: [success, error, pending]
+        error:
+          type: string
+        duration_ms:
+          type: integer
+        tokens_used:
+          type: integer
+        metadata:
+          $ref: "#/components/schemas/StepMetadata"
+        created_at:
+          type: string
+          format: date-time
+
+    StepMetadata:
+      type: object
+      properties:
+        provider:
+          type: string
+        model:
+          type: string
+        temperature:
+          type: number
+          format: double
+        tool_name:
+          type: string
+        skill_name:
+          type: string
+        skill_tools:
+          type: array
+          items:
+            type: string
+        agent_uuid:
+          type: string
+        agent_name:
+          type: string
+
+    # ===== File =====
+    FileInfo:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        uuid:
+          type: string
+        conversation_id:
+          type: integer
+          format: int64
+        message_id:
+          type: integer
+          format: int64
+        filename:
+          type: string
+        content_type:
+          type: string
+        file_size:
+          type: integer
+          format: int64
+        file_type:
+          type: string
+          enum: [text, image, document]
+        text_content:
+          type: string
+          description: 提取的文本内容（非图片文件）
+        created_at:
+          type: string
+          format: date-time
