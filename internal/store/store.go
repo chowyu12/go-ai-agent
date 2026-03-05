@@ -29,8 +29,10 @@ type AgentStore interface {
 	CreateAgent(ctx context.Context, a *model.Agent) error
 	GetAgent(ctx context.Context, id int64) (*model.Agent, error)
 	GetAgentByUUID(ctx context.Context, uuid string) (*model.Agent, error)
+	GetAgentByToken(ctx context.Context, token string) (*model.Agent, error)
 	ListAgents(ctx context.Context, q model.ListQuery) ([]*model.Agent, int64, error)
 	UpdateAgent(ctx context.Context, id int64, req model.UpdateAgentReq) error
+	UpdateAgentToken(ctx context.Context, id int64, token string) error
 	DeleteAgent(ctx context.Context, id int64) error
 
 	SetAgentTools(ctx context.Context, agentID int64, toolIDs []int64) error

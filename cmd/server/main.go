@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
+	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/config"
 	"github.com/chowyu12/go-ai-agent/internal/handler"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
@@ -60,7 +61,11 @@ func main() {
 
 	mountFrontend(mux)
 
-	wrapped := handler.Logger(handler.CORS(handler.Auth(cfg.JWT.Secret)(mux)))
+	authMW := auth.Middleware(auth.Config{
+		JWTSecret:     []byte(cfg.JWT.Secret),
+		TokenResolver: store,
+	})
+	wrapped := handler.Logger(handler.CORS(authMW(mux)))
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{

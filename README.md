@@ -193,10 +193,86 @@ make deps             # 整理 Go 依赖
 | GET/POST/PUT/DELETE | `/agents` | Agent 管理 | 读：登录 / 写：超管 |
 | GET/POST/PUT/DELETE | `/tools` | 工具管理 | 读：登录 / 写：超管 |
 | GET/POST/PUT/DELETE | `/skills` | 技能管理 | 读：登录 / 写：超管 |
-| POST | `/chat/completions` | 阻塞式对话 | 登录 |
-| POST | `/chat/stream` | 流式对话（SSE） | 登录 |
+| POST | `/chat/completions` | 阻塞式对话 | 登录 / Agent Token |
+| POST | `/chat/stream` | 流式对话（SSE） | 登录 / Agent Token |
 | GET/DELETE | `/conversations` | 会话管理 | 登录 |
+| POST | `/agents/{id}/reset-token` | 重置 Agent Token | 超管 |
 | GET/POST/PUT/DELETE | `/users` | 用户管理 | 超管 |
+
+### Agent Token（后端调用）
+
+每个 Agent 创建时会自动生成一个 `ag-` 前缀的 API Token，后端服务可以直接用这个 Token 调用 chat 接口，无需 JWT 登录。Token 可在 Agent 编辑页面查看、复制和重置。
+
+**阻塞式调用**
+
+```bash
+curl -X POST http://localhost:8080/api/v1/chat/completions \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "今天天气怎么样？", "user_id": "backend-service"}'
+```
+
+使用 Agent Token 时无需传 `agent_id`，系统会自动匹配。
+
+**流式调用（SSE）**
+
+```bash
+curl -N -X POST http://localhost:8080/api/v1/chat/stream \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "帮我写一个排序算法", "user_id": "backend-service"}'
+```
+
+**带会话上下文的多轮对话**
+
+```bash
+# 第一轮，返回的 conversation_id 用于后续对话
+curl -X POST http://localhost:8080/api/v1/chat/completions \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "什么是微服务？", "user_id": "backend-service"}'
+
+# 第二轮，传入上一轮返回的 conversation_id
+curl -X POST http://localhost:8080/api/v1/chat/completions \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"message": "它和单体架构有什么区别？", "conversation_id": "上一轮返回的ID", "user_id": "backend-service"}'
+```
+
+**带文件的对话**
+
+```bash
+# 先上传文件，获取 upload_file_id
+curl -X POST http://localhost:8080/api/v1/files/upload \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -F "file=@document.pdf"
+
+# 在对话中引用文件
+curl -X POST http://localhost:8080/api/v1/chat/completions \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "帮我总结这个文档",
+    "user_id": "backend-service",
+    "files": [
+      {"type": "document", "transfer_method": "local_file", "upload_file_id": "文件UUID"}
+    ]
+  }'
+
+# 也支持直接传文件 URL
+curl -X POST http://localhost:8080/api/v1/chat/completions \
+  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "分析这张图片",
+    "user_id": "backend-service",
+    "files": [
+      {"type": "image", "transfer_method": "remote_url", "url": "https://example.com/image.png"}
+    ]
+  }'
+```
+
+> Agent Token 仅可访问 `/api/v1/chat/` 下的接口，不能访问管理类接口。
 
 ## 部署
 

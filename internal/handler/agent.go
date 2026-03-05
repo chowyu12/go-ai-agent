@@ -7,6 +7,7 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
 	"github.com/chowyu12/go-ai-agent/pkg/httputil"
+	"github.com/google/uuid"
 )
 
 type AgentHandler struct {
@@ -23,6 +24,7 @@ func (h *AgentHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/agents/{id}", h.Get)
 	mux.HandleFunc("PUT /api/v1/agents/{id}", h.Update)
 	mux.HandleFunc("DELETE /api/v1/agents/{id}", h.Delete)
+	mux.HandleFunc("POST /api/v1/agents/{id}/reset-token", h.ResetToken)
 }
 
 func (h *AgentHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -130,4 +132,18 @@ func (h *AgentHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.OK(w, nil)
+}
+
+func (h *AgentHandler) ResetToken(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		httputil.BadRequest(w, "invalid id")
+		return
+	}
+	newToken := "ag-" + uuid.New().String()
+	if err := h.store.UpdateAgentToken(r.Context(), id, newToken); err != nil {
+		httputil.InternalError(w, err.Error())
+		return
+	}
+	httputil.OK(w, map[string]string{"token": newToken})
 }

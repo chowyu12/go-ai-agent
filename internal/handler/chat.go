@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
+	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
 	"github.com/chowyu12/go-ai-agent/pkg/httputil"
@@ -30,12 +31,20 @@ func (h *ChatHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/conversations/{id}/steps", h.ListConversationSteps)
 }
 
+func fillAgentFromToken(r *http.Request, req *model.ChatRequest) {
+	id := auth.IdentityFromContext(r.Context())
+	if id != nil && id.IsAgentToken() && req.AgentID == "" {
+		req.AgentID = id.AgentUUID
+	}
+}
+
 func (h *ChatHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	var req model.ChatRequest
 	if err := httputil.BindJSON(r, &req); err != nil {
 		httputil.BadRequest(w, "invalid request body")
 		return
 	}
+	fillAgentFromToken(r, &req)
 	if req.AgentID == "" {
 		httputil.BadRequest(w, "agent_id is required")
 		return
@@ -70,6 +79,7 @@ func (h *ChatHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		httputil.BadRequest(w, "invalid request body")
 		return
 	}
+	fillAgentFromToken(r, &req)
 	if req.AgentID == "" {
 		httputil.BadRequest(w, "agent_id is required")
 		return

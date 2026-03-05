@@ -129,6 +129,10 @@ func (s *mockStore) UpdateAgent(_ context.Context, _ int64, _ model.UpdateAgentR
 	return nil
 }
 func (s *mockStore) DeleteAgent(_ context.Context, _ int64) error { return nil }
+func (s *mockStore) GetAgentByToken(_ context.Context, _ string) (*model.Agent, error) {
+	return nil, errors.New("not found")
+}
+func (s *mockStore) UpdateAgentToken(_ context.Context, _ int64, _ string) error { return nil }
 
 func (s *mockStore) SetAgentTools(_ context.Context, agentID int64, toolIDs []int64) error {
 	s.mu.Lock()

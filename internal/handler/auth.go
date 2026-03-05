@@ -3,11 +3,10 @@ package handler
 import (
 	"net/http"
 	"strconv"
-	"time"
 
-	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 
+	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
 	"github.com/chowyu12/go-ai-agent/pkg/httputil"
@@ -81,7 +80,7 @@ func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.generateToken(u)
+	token, err := auth.GenerateJWT(h.jwtSecret, h.expireHours, u)
 	if err != nil {
 		httputil.InternalError(w, "generate token failed")
 		return
@@ -122,7 +121,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := h.generateToken(user)
+	token, err := auth.GenerateJWT(h.jwtSecret, h.expireHours, user)
 	if err != nil {
 		httputil.InternalError(w, "generate token failed")
 		return
@@ -135,15 +134,15 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
-	claims := ClaimsFromContext(r.Context())
-	if claims == nil {
+	id := auth.IdentityFromContext(r.Context())
+	if id == nil {
 		httputil.Unauthorized(w, "unauthorized")
 		return
 	}
 	httputil.OK(w, model.UserInfo{
-		ID:       claims.UserID,
-		Username: claims.Username,
-		Role:     model.Role(claims.Role),
+		ID:       id.UserID,
+		Username: id.Username,
+		Role:     model.Role(id.Role),
 	})
 }
 
@@ -229,19 +228,4 @@ func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httputil.OKList(w, list, total)
-}
-
-func (h *AuthHandler) generateToken(u *model.User) (string, error) {
-	now := time.Now()
-	claims := &Claims{
-		UserID:   u.ID,
-		Username: u.Username,
-		Role:     string(u.Role),
-		RegisteredClaims: jwt.RegisteredClaims{
-			IssuedAt:  jwt.NewNumericDate(now),
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Duration(h.expireHours) * time.Hour)),
-		},
-	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(h.jwtSecret)
 }

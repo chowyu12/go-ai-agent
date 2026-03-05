@@ -13,6 +13,7 @@ type Agent struct {
 	Temperature  float64   `json:"temperature"`
 	MaxTokens    int       `json:"max_tokens"`
 	Timeout      int       `json:"timeout"`
+	Token        string    `json:"token"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 

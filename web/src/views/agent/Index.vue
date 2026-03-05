@@ -23,6 +23,17 @@
         <el-table-column prop="temperature" label="温度" width="80" />
         <el-table-column prop="max_tokens" label="Max Tokens" width="110" />
         <el-table-column prop="timeout" label="超时(秒)" width="100" />
+        <el-table-column label="API Token" width="200">
+          <template #default="{ row }">
+            <div v-if="row.token" style="display: flex; align-items: center; gap: 4px;">
+              <span style="font-family: monospace; font-size: 12px; color: #606266; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;">{{ row.token }}</span>
+              <el-button link size="small" @click="copyToken(row.token)">
+                <el-icon><DocumentCopy /></el-icon>
+              </el-button>
+            </div>
+            <span v-else style="color: #C0C4CC; font-size: 12px;">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
           <template #default="{ row }">
@@ -103,6 +114,30 @@
           <span style="margin-left: 8px; color: #909399; font-size: 12px;">默认 120 秒</span>
         </el-form-item>
 
+        <el-form-item v-if="form.id" label="API Token">
+          <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
+            <el-input :model-value="form.token || ''" readonly placeholder="尚未生成" style="flex: 1; font-family: monospace;" />
+            <template v-if="form.token">
+              <el-button @click="copyToken(form.token)">
+                <el-icon><DocumentCopy /></el-icon> 复制
+              </el-button>
+              <el-popconfirm title="重置后旧 Token 将失效，确定重置？" @confirm="handleResetToken">
+                <template #reference>
+                  <el-button type="warning">
+                    <el-icon><RefreshRight /></el-icon> 重置
+                  </el-button>
+                </template>
+              </el-popconfirm>
+            </template>
+            <el-button v-else type="primary" @click="handleResetToken">
+              <el-icon><Key /></el-icon> 生成
+            </el-button>
+          </div>
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            使用此 Token 通过 API 直接调用 Agent，无需 JWT 登录。示例：Authorization: Bearer {{ form.token || 'ag-xxx' }}
+          </div>
+        </el-form-item>
+
         <el-divider content-position="left">关联配置</el-divider>
 
         <el-form-item label="关联工具">
@@ -171,6 +206,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { DocumentCopy, Key, RefreshRight } from '@element-plus/icons-vue'
 import { agentApi, type Agent } from '../../api/agent'
 import { providerApi, type Provider } from '../../api/provider'
 import { toolApi, type Tool } from '../../api/tool'
@@ -324,6 +360,25 @@ async function handleDelete(id: number) {
   await agentApi.delete(id)
   ElMessage.success('删除成功')
   loadData()
+}
+
+function copyToken(token: string) {
+  if (!token) return
+  navigator.clipboard.writeText(token).then(() => {
+    ElMessage.success('Token 已复制到剪贴板')
+  })
+}
+
+async function handleResetToken() {
+  if (!form.value.id) return
+  try {
+    const res: any = await agentApi.resetToken(form.value.id)
+    form.value.token = res.data?.token || ''
+    ElMessage.success('Token 已重置')
+    loadData()
+  } catch {
+    ElMessage.error('重置 Token 失败')
+  }
 }
 
 onMounted(loadData)

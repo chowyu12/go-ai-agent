@@ -10,6 +10,7 @@ export interface Agent {
   model_name: string
   temperature: number
   max_tokens: number
+  token: string
   tools?: any[]
   skills?: any[]
   children?: any[]
@@ -36,4 +37,5 @@ export const agentApi = {
   create: (data: CreateAgentReq) => request.post('/agents', data),
   update: (id: number, data: Partial<CreateAgentReq>) => request.put(`/agents/${id}`, data),
   delete: (id: number) => request.delete(`/agents/${id}`),
+  resetToken: (id: number) => request.post(`/agents/${id}/reset-token`),
 }
