@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/tools"
@@ -40,11 +40,16 @@ func WithProviderFactory(f ProviderFactory) ExecutorOption {
 	return func(e *Executor) { e.providerFactory = f }
 }
 
+func WithPublicBaseURL(url string) ExecutorOption {
+	return func(e *Executor) { e.publicBaseURL = strings.TrimRight(url, "/") }
+}
+
 type Executor struct {
 	store           store.Store
 	registry        *ToolRegistry
 	memory          *MemoryManager
 	providerFactory ProviderFactory
+	publicBaseURL   string
 }
 
 func NewExecutor(s store.Store, registry *ToolRegistry, opts ...ExecutorOption) *Executor {
@@ -512,7 +517,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 				l.WithFields(log.Fields{"tool": toolName, "duration": callDur, "preview": truncateLog(output, 200)}).Info("[Tool] << ok")
 			}
 
-			resp, fileParts := buildToolResponseParts(tc.ID, toolName, toolResult, callErr == nil, l)
+			resp, fileParts := e.buildToolResponseParts(ctx, tc.ID, toolName, toolResult, callErr == nil, l)
 			messages = append(messages, llms.MessageContent{
 				Role:  llms.ChatMessageTypeTool,
 				Parts: []llms.ContentPart{resp},
@@ -844,7 +849,7 @@ func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skil
 	}
 }
 
-func buildToolResponseParts(toolCallID, toolName, toolResult string, ok bool, l *log.Entry) (llms.ContentPart, []llms.ContentPart) {
+func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolName, toolResult string, ok bool, l *log.Entry) (llms.ContentPart, []llms.ContentPart) {
 	resp := func(content string) llms.ContentPart {
 		return llms.ToolCallResponse{ToolCallID: toolCallID, Name: toolName, Content: content}
 	}
@@ -867,7 +872,8 @@ func buildToolResponseParts(toolCallID, toolName, toolResult string, ok bool, l 
 	l.WithFields(log.Fields{"tool": toolName, "path": fr.Path, "mime": fr.MimeType, "size": len(data)}).Info("[Tool] << attaching file to response")
 
 	if strings.HasPrefix(fr.MimeType, "image/") {
-		return resp(fr.Description), []llms.ContentPart{imageContentPart(fr.MimeType, data)}
+		imgPart := e.imagePartForToolFile(ctx, fr, data)
+		return resp(fr.Description), []llms.ContentPart{imgPart}
 	}
 
 	content := string(data)
@@ -876,6 +882,28 @@ func buildToolResponseParts(toolCallID, toolName, toolResult string, ok bool, l 
 		content = content[:maxFileContent] + "\n... (content truncated)"
 	}
 	return resp(fmt.Sprintf("%s\n\n%s", fr.Description, content)), nil
+}
+
+func (e *Executor) imagePartForToolFile(ctx context.Context, fr *toolFileResult, data []byte) llms.ContentPart {
+	if e.publicBaseURL == "" {
+		log.Warn("[Execute] public_base_url not configured, tool image will not be visible to model")
+		return llms.TextContent{Text: fmt.Sprintf("[image: %s, %d bytes, cannot display without public_base_url]", filepath.Base(fr.Path), len(data))}
+	}
+	f := &model.File{
+		UUID:        uuid.New().String(),
+		Filename:    filepath.Base(fr.Path),
+		ContentType: fr.MimeType,
+		FileSize:    int64(len(data)),
+		FileType:    model.FileTypeImage,
+		StoragePath: fr.Path,
+	}
+	if err := e.store.CreateFile(ctx, f); err != nil {
+		log.WithError(err).Warn("[Execute] save tool image to store failed")
+		return llms.TextContent{Text: fmt.Sprintf("[image: %s, save failed]", filepath.Base(fr.Path))}
+	}
+	fileURL := e.publicBaseURL + "/public/files/" + f.UUID
+	log.WithFields(log.Fields{"file": f.Filename, "url": fileURL}).Debug("[Execute] attaching tool image via URL")
+	return llms.ImageURLContent{URL: fileURL}
 }
 
 func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string, files []*model.File) []llms.MessageContent {
@@ -927,12 +955,12 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 	}
 
 	for _, img := range imageFiles {
-		data, err := os.ReadFile(img.StoragePath)
+		part, err := e.imagePartForFile(img)
 		if err != nil {
-			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] read image file failed, skipping")
+			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] prepare image failed, skipping")
 			continue
 		}
-		parts = append(parts, imageContentPart(img.ContentType, data))
+		parts = append(parts, part)
 	}
 
 	messages = append(messages, llms.MessageContent{
@@ -997,9 +1025,13 @@ func (e *Executor) linkFilesToMessage(ctx context.Context, files []*model.File, 
 	}
 }
 
-func imageContentPart(mimeType string, data []byte) llms.ContentPart {
-	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
-	return llms.ImageURLContent{URL: dataURL}
+func (e *Executor) imagePartForFile(f *model.File) (llms.ContentPart, error) {
+	if e.publicBaseURL == "" || f.UUID == "" {
+		return nil, fmt.Errorf("public_base_url not configured or file has no UUID")
+	}
+	fileURL := e.publicBaseURL + "/public/files/" + f.UUID
+	log.WithFields(log.Fields{"file": f.Filename, "url": fileURL}).Debug("[Execute] attaching image via URL")
+	return llms.ImageURLContent{URL: fileURL}, nil
 }
 
 func truncateLog(s string, maxLen int) string {

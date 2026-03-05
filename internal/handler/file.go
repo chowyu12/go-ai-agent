@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -34,6 +35,7 @@ func (h *FileHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/files", h.Upload)
 	mux.HandleFunc("GET /api/v1/files", h.List)
 	mux.HandleFunc("GET /api/v1/files/{uuid}", h.Download)
+	mux.HandleFunc("GET /public/files/{uuid}", h.Download)
 	mux.HandleFunc("DELETE /api/v1/files/{uuid}", h.Delete)
 }
 
@@ -53,8 +55,12 @@ func (h *FileHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	conversationID, _ := strconv.ParseInt(r.FormValue("conversation_id"), 10, 64)
 
 	contentType := header.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	if contentType == "" || contentType == "application/octet-stream" {
+		if mt := mime.TypeByExtension(filepath.Ext(header.Filename)); mt != "" {
+			contentType = mt
+		} else {
+			contentType = "application/octet-stream"
+		}
 	}
 
 	fileType := classifyFile(contentType, header.Filename)

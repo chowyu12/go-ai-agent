@@ -85,8 +85,8 @@
               <!-- 附件 -->
               <div v-if="msg.files && msg.files.length > 0" class="msg-attachments">
                 <template v-for="f in msg.files" :key="f.uuid">
-                  <img v-if="f.file_type === 'image'" :src="'/api/v1/files/' + f.uuid" :alt="f.filename" class="attach-img" />
-                  <a v-else :href="'/api/v1/files/' + f.uuid" target="_blank" class="attach-file">
+                  <img v-if="f.file_type === 'image'" :src="'/public/files/' + f.uuid" :alt="f.filename" class="attach-img" />
+                  <a v-else :href="'/public/files/' + f.uuid" target="_blank" class="attach-file">
                     <span class="attach-file-icon">{{ fileTypeIcon(f.file_type) }}</span>
                     <span class="attach-file-name">{{ f.filename }}</span>
                     <span class="attach-file-size" v-if="f.file_size">{{ formatFileSize(f.file_size) }}</span>

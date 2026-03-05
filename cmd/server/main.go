@@ -47,7 +47,11 @@ func main() {
 	seed.Init(context.Background(), store)
 
 	registry := agentpkg.NewToolRegistry()
-	executor := agentpkg.NewExecutor(store, registry)
+	var execOpts []agentpkg.ExecutorOption
+	if cfg.Server.PublicBaseURL != "" {
+		execOpts = append(execOpts, agentpkg.WithPublicBaseURL(cfg.Server.PublicBaseURL))
+	}
+	executor := agentpkg.NewExecutor(store, registry, execOpts...)
 
 	mux := http.NewServeMux()
 

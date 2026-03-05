@@ -109,7 +109,7 @@ func authorize(id *Identity, method, path string) error {
 // --- public routes ---
 
 func isPublic(path string) bool {
-	if !strings.HasPrefix(path, "/api/v1/") {
+	if !strings.HasPrefix(path, "/api/") {
 		return true
 	}
 	return path == "/api/v1/auth/login" ||

@@ -25,8 +25,9 @@ type JWTConfig struct {
 }
 
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host          string `yaml:"host"`
+	Port          int    `yaml:"port"`
+	PublicBaseURL string `yaml:"public_base_url"`
 }
 
 type DatabaseConfig struct {
