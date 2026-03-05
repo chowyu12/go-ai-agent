@@ -37,6 +37,22 @@
               <div class="message-role">{{ msg.role === 'user' ? '你' : 'Agent' }}</div>
               <div class="message-text" v-html="formatMessage(msg.content)"></div>
 
+              <!-- 附件展示 -->
+              <div v-if="msg.files && msg.files.length > 0" class="msg-files">
+                <div v-for="f in msg.files" :key="f.uuid" class="msg-file">
+                  <template v-if="f.file_type === 'image'">
+                    <img :src="'/api/v1/files/' + f.uuid" :alt="f.filename" class="msg-file-img" />
+                  </template>
+                  <template v-else>
+                    <a :href="'/api/v1/files/' + f.uuid" target="_blank" class="msg-file-link">
+                      <span>{{ fileTypeIcon(f.file_type) }}</span>
+                      <span>{{ f.filename }}</span>
+                      <span class="msg-file-size">{{ formatFileSize(f.file_size) }}</span>
+                    </a>
+                  </template>
+                </div>
+              </div>
+
               <!-- 执行步骤面板 -->
               <div v-if="msg.role === 'assistant' && msg.steps && msg.steps.length > 0" class="steps-panel">
                 <div class="steps-toggle" @click="msg._showSteps = !msg._showSteps">
@@ -163,24 +179,72 @@
       </div>
 
       <div class="input-area">
-        <el-input
-          v-model="inputMessage"
-          type="textarea"
-          :rows="2"
-          placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
-          :disabled="!selectedAgentUUID || streaming"
-          @keydown="handleKeydown"
-          resize="none"
-        />
-        <el-button
-          type="primary"
-          :disabled="!selectedAgentUUID || !inputMessage.trim() || streaming"
-          :loading="streaming"
-          @click="sendMessage"
-          style="margin-left: 12px; height: 54px;"
-        >
-          <el-icon><Promotion /></el-icon>
-        </el-button>
+        <!-- 待发送文件列表 -->
+        <div v-if="pendingFiles.length > 0 || pendingURLs.length > 0" class="pending-files">
+          <div v-for="(f, idx) in pendingFiles" :key="f.uuid" class="pending-file">
+            <span class="pending-file-icon">{{ fileTypeIcon(f.file_type) }}</span>
+            <span class="pending-file-name">{{ f.filename }}</span>
+            <span class="pending-file-size">{{ formatFileSize(f.file_size) }}</span>
+            <el-icon class="pending-file-remove" @click="removeFile(idx)"><Close /></el-icon>
+          </div>
+          <div v-for="(u, idx) in pendingURLs" :key="u" class="pending-file pending-url">
+            <span class="pending-file-icon">🔗</span>
+            <span class="pending-file-name" :title="u">{{ u.length > 50 ? u.slice(0, 50) + '...' : u }}</span>
+            <el-icon class="pending-file-remove" @click="removeURL(idx)"><Close /></el-icon>
+          </div>
+        </div>
+        <div v-if="showURLInput" class="url-input-row">
+          <el-input
+            v-model="urlInput"
+            size="small"
+            placeholder="输入文件 URL，按回车添加"
+            @keydown.enter.prevent="addURL"
+            clearable
+          />
+          <el-button size="small" type="primary" @click="addURL" :disabled="!urlInput.trim()">添加</el-button>
+          <el-button size="small" @click="showURLInput = false; urlInput = ''">取消</el-button>
+        </div>
+        <div class="input-row">
+          <label class="upload-btn" :class="{ disabled: !selectedAgentUUID || streaming || uploading }">
+            <el-icon :size="18"><UploadFilled /></el-icon>
+            <input
+              type="file"
+              multiple
+              accept=".txt,.md,.json,.csv,.xml,.yaml,.yml,.log,.pdf,.docx,.doc,.xlsx,.xls,.png,.jpg,.jpeg,.gif,.webp"
+              style="display: none"
+              :disabled="!selectedAgentUUID || streaming || uploading"
+              @change="handleFileUpload"
+            />
+          </label>
+          <el-button
+            class="url-btn"
+            :class="{ disabled: !selectedAgentUUID || streaming }"
+            :disabled="!selectedAgentUUID || streaming"
+            @click="showURLInput = !showURLInput"
+            circle
+            size="small"
+          >
+            <el-icon :size="16"><Link /></el-icon>
+          </el-button>
+          <el-input
+            v-model="inputMessage"
+            type="textarea"
+            :rows="2"
+            placeholder="输入消息... (Enter 发送, Shift+Enter 换行)"
+            :disabled="!selectedAgentUUID || streaming"
+            @keydown="handleKeydown"
+            resize="none"
+          />
+          <el-button
+            type="primary"
+            :disabled="!selectedAgentUUID || !inputMessage.trim() || streaming"
+            :loading="streaming"
+            @click="sendMessage"
+            style="margin-left: 12px; height: 54px;"
+          >
+            <el-icon><Promotion /></el-icon>
+          </el-button>
+        </div>
       </div>
     </el-card>
   </div>
@@ -189,12 +253,21 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, watch, reactive } from 'vue'
 import { agentApi, type Agent } from '../../api/agent'
-import { streamChat, type StreamChunk, type ExecutionStep } from '../../api/chat'
+import { streamChat, fileApi, type StreamChunk, type ExecutionStep, type FileInfo, type ChatFile } from '../../api/chat'
+import { ElMessage } from 'element-plus'
+
+interface UploadedFile {
+  uuid: string
+  filename: string
+  file_type: 'text' | 'image' | 'document'
+  file_size: number
+}
 
 interface ChatMessage {
   role: string
   content: string
   steps?: ExecutionStep[]
+  files?: FileInfo[]
   _showSteps?: boolean
 }
 
@@ -207,6 +280,11 @@ const streaming = ref(false)
 const streamingContent = ref('')
 const messagesArea = ref<HTMLElement>()
 const pendingSteps = ref<ExecutionStep[]>([])
+const pendingFiles = ref<UploadedFile[]>([])
+const pendingURLs = ref<string[]>([])
+const urlInput = ref('')
+const showURLInput = ref(false)
+const uploading = ref(false)
 
 onMounted(async () => {
   const res: any = await agentApi.list({ page: 1, page_size: 100 })
@@ -226,6 +304,71 @@ function newConversation() {
   messages.value = []
   streamingContent.value = ''
   pendingSteps.value = []
+  pendingFiles.value = []
+  pendingURLs.value = []
+  urlInput.value = ''
+  showURLInput.value = false
+}
+
+async function handleFileUpload(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = input.files
+  if (!files || files.length === 0) return
+
+  uploading.value = true
+  for (const file of Array.from(files)) {
+    try {
+      const res: any = await fileApi.upload(file)
+      const f = res.data as FileInfo
+      pendingFiles.value.push({ uuid: f.uuid, filename: f.filename, file_type: f.file_type, file_size: f.file_size })
+    } catch {
+      ElMessage.error(`上传 ${file.name} 失败`)
+    }
+  }
+  uploading.value = false
+  input.value = ''
+}
+
+function removeFile(idx: number) {
+  const f = pendingFiles.value[idx]
+  if (!f) return
+  pendingFiles.value.splice(idx, 1)
+  fileApi.delete(f.uuid).catch(() => {})
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+}
+
+function fileTypeIcon(type: string): string {
+  switch (type) {
+    case 'image': return '🖼'
+    case 'document': return '📄'
+    default: return '📝'
+  }
+}
+
+function addURL() {
+  const url = urlInput.value.trim()
+  if (!url) return
+  try {
+    new URL(url)
+  } catch {
+    ElMessage.warning('请输入有效的 URL')
+    return
+  }
+  if (pendingURLs.value.includes(url)) {
+    ElMessage.warning('该 URL 已添加')
+    return
+  }
+  pendingURLs.value.push(url)
+  urlInput.value = ''
+}
+
+function removeURL(idx: number) {
+  pendingURLs.value.splice(idx, 1)
 }
 
 function handleKeydown(e: KeyboardEvent) {
@@ -247,8 +390,33 @@ function sendMessage() {
   const text = inputMessage.value.trim()
   if (!text || !selectedAgentUUID.value) return
 
-  messages.value.push(reactive({ role: 'user', content: text }))
+  const chatFiles: ChatFile[] = [
+    ...pendingFiles.value.map(f => ({
+      type: f.file_type as ChatFile['type'],
+      transfer_method: 'local_file' as const,
+      upload_file_id: f.uuid,
+    })),
+    ...pendingURLs.value.map(u => ({
+      type: 'document' as const,
+      transfer_method: 'remote_url' as const,
+      url: u,
+    })),
+  ]
+
+  const displayFiles: FileInfo[] = [
+    ...pendingFiles.value.map(f => ({ ...f, id: 0, conversation_id: 0, message_id: 0, content_type: '', created_at: '' }) as FileInfo),
+    ...pendingURLs.value.map(u => ({
+      id: 0, uuid: u, conversation_id: 0, message_id: 0,
+      filename: u.split('/').pop() || 'url', content_type: '',
+      file_size: 0, file_type: 'text' as const, created_at: '',
+    })),
+  ]
+  messages.value.push(reactive({ role: 'user', content: text, files: displayFiles.length > 0 ? displayFiles : undefined }))
   inputMessage.value = ''
+  pendingFiles.value = []
+  pendingURLs.value = []
+  urlInput.value = ''
+  showURLInput.value = false
   streaming.value = true
   streamingContent.value = ''
   pendingSteps.value = []
@@ -259,6 +427,7 @@ function sendMessage() {
       agent_id: selectedAgentUUID.value,
       conversation_id: conversationId.value,
       message: text,
+      files: chatFiles.length > 0 ? chatFiles : undefined,
     },
     (chunk: StreamChunk) => {
       if (chunk.conversation_id) {
@@ -421,9 +590,124 @@ function truncateText(text: string, maxLen: number): string {
   background-color: #ecf5ff;
 }
 .input-area {
-  display: flex;
-  padding: 16px 20px;
+  padding: 12px 20px;
   border-top: 1px solid #e8e8e8;
+}
+.input-row {
+  display: flex;
+  align-items: flex-start;
+}
+.upload-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 54px;
+  cursor: pointer;
+  color: #606266;
+  flex-shrink: 0;
+  margin-right: 8px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+.upload-btn:hover:not(.disabled) {
+  color: #409eff;
+  background-color: #ecf5ff;
+}
+.upload-btn.disabled {
+  color: #c0c4cc;
+  cursor: not-allowed;
+}
+.url-btn {
+  flex-shrink: 0;
+  margin-right: 8px;
+  height: 54px !important;
+  width: 36px !important;
+  border: none;
+  padding: 0;
+}
+.url-btn.disabled {
+  color: #c0c4cc;
+}
+.url-input-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+  align-items: center;
+}
+.url-input-row .el-input {
+  flex: 1;
+}
+.pending-url .pending-file-name {
+  color: #409eff;
+  font-style: italic;
+}
+.pending-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.pending-file {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f4f4f5;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 4px 8px;
+  font-size: 12px;
+  color: #606266;
+}
+.pending-file-icon { font-size: 14px; }
+.pending-file-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pending-file-size { color: #909399; }
+.pending-file-remove {
+  cursor: pointer;
+  color: #909399;
+  transition: color 0.2s;
+}
+.pending-file-remove:hover { color: #f56c6c; }
+.msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+.msg-file-img {
+  max-width: 200px;
+  max-height: 150px;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+.msg-file-img:hover { transform: scale(1.02); }
+.msg-file-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #409eff;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.msg-file-link:hover {
+  border-color: #409eff;
+  background: #ecf5ff;
+}
+.msg-file-size {
+  color: #909399;
+  font-size: 11px;
 }
 
 /* Steps Panel */

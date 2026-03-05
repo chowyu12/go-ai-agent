@@ -131,14 +131,16 @@ func (h *ChatHandler) ListMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if withSteps {
-		for i, msg := range msgs {
-			if msg.Role == "assistant" {
-				steps, err := h.store.ListExecutionSteps(r.Context(), msg.ID)
-				if err == nil {
-					msgs[i].Steps = steps
-				}
+	for i, msg := range msgs {
+		if withSteps && msg.Role == "assistant" {
+			steps, err := h.store.ListExecutionSteps(r.Context(), msg.ID)
+			if err == nil {
+				msgs[i].Steps = steps
 			}
+		}
+		files, err := h.store.ListFilesByMessage(r.Context(), msg.ID)
+		if err == nil && len(files) > 0 {
+			msgs[i].Files = files
 		}
 	}
 

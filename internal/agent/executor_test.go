@@ -342,7 +342,25 @@ func (s *mockStore) ListUsers(_ context.Context, _ model.ListQuery) ([]*model.Us
 }
 func (s *mockStore) UpdateUser(_ context.Context, _ int64, _ model.UpdateUserReq) error { return nil }
 func (s *mockStore) DeleteUser(_ context.Context, _ int64) error                        { return nil }
-func (s *mockStore) HasAdmin(_ context.Context) (bool, error)                           { return false, nil }
+func (s *mockStore) HasAdmin(_ context.Context) (bool, error) { return false, nil }
+
+// ==================== Mock FileStore (no-op) ====================
+
+func (s *mockStore) CreateFile(_ context.Context, f *model.File) error {
+	f.ID = s.nextID()
+	return nil
+}
+func (s *mockStore) GetFileByUUID(_ context.Context, _ string) (*model.File, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (s *mockStore) ListFilesByConversation(_ context.Context, _ int64) ([]*model.File, error) {
+	return nil, nil
+}
+func (s *mockStore) ListFilesByMessage(_ context.Context, _ int64) ([]*model.File, error) {
+	return nil, nil
+}
+func (s *mockStore) UpdateFileMessageID(_ context.Context, _, _ int64) error { return nil }
+func (s *mockStore) DeleteFile(_ context.Context, _ int64) error             { return nil }
 
 // ==================== Mock LLM Provider ====================
 
@@ -1187,7 +1205,7 @@ func TestBuildMessages(t *testing.T) {
 	}
 	toolNames := []string{"tool1"}
 
-	msgs := exec.buildMessages(ag, skills, history, "new question", toolNames)
+	msgs := exec.buildMessages(ag, skills, history, "new question", toolNames, nil)
 
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages (system + 2 history + user), got %d", len(msgs))
@@ -1207,6 +1225,34 @@ func TestBuildMessages(t *testing.T) {
 	}
 	if lastText != "new question" {
 		t.Errorf("last message content should be 'new question', got %q", lastText)
+	}
+}
+
+func TestBuildMessages_WithFiles(t *testing.T) {
+	exec := &Executor{}
+	ag := &model.Agent{SystemPrompt: "you are a bot"}
+
+	files := []*model.File{
+		{Filename: "readme.txt", FileType: model.FileTypeText, TextContent: "This is a readme file content."},
+	}
+
+	msgs := exec.buildMessages(ag, nil, nil, "summarize the file", nil, files)
+
+	lastMsg := msgs[len(msgs)-1]
+	lastText := ""
+	for _, part := range lastMsg.Parts {
+		if tc, ok := part.(llms.TextContent); ok {
+			lastText = tc.Text
+		}
+	}
+	if !strings.Contains(lastText, "readme.txt") {
+		t.Errorf("expected file reference in message, got %q", lastText)
+	}
+	if !strings.Contains(lastText, "This is a readme file content.") {
+		t.Errorf("expected file content in message, got %q", lastText)
+	}
+	if !strings.Contains(lastText, "summarize the file") {
+		t.Errorf("expected user message in text, got %q", lastText)
 	}
 }
 

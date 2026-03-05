@@ -27,6 +27,7 @@ type Message struct {
 	CreatedAt      time.Time       `json:"created_at"`
 
 	Steps []ExecutionStep `json:"steps,omitzero"`
+	Files []*File          `json:"files,omitzero"`
 }
 
 type StepType string
@@ -74,12 +75,37 @@ type StepMetadata struct {
 	AgentName   string   `json:"agent_name,omitzero"`
 }
 
+type ChatFileType string
+
+const (
+	ChatFileDocument ChatFileType = "document"
+	ChatFileImage    ChatFileType = "image"
+	ChatFileAudio    ChatFileType = "audio"
+	ChatFileVideo    ChatFileType = "video"
+	ChatFileCustom   ChatFileType = "custom"
+)
+
+type TransferMethod string
+
+const (
+	TransferRemoteURL TransferMethod = "remote_url"
+	TransferLocalFile TransferMethod = "local_file"
+)
+
+type ChatFile struct {
+	Type           ChatFileType   `json:"type"`
+	TransferMethod TransferMethod `json:"transfer_method"`
+	URL            string         `json:"url,omitzero"`
+	UploadFileID   string         `json:"upload_file_id,omitzero"`
+}
+
 type ChatRequest struct {
-	AgentID        string `json:"agent_id"`
-	ConversationID string `json:"conversation_id,omitzero"`
-	UserID         string `json:"user_id"`
-	Message        string `json:"message"`
-	Stream         bool   `json:"stream"`
+	AgentID        string     `json:"agent_id"`
+	ConversationID string     `json:"conversation_id,omitzero"`
+	UserID         string     `json:"user_id"`
+	Message        string     `json:"message"`
+	Stream         bool       `json:"stream"`
+	Files          []ChatFile `json:"files,omitzero"`
 }
 
 type ChatResponse struct {

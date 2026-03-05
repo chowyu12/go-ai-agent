@@ -1,9 +1,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,6 +19,7 @@ import (
 	"github.com/tmc/langchaingo/tools"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
+	"github.com/chowyu12/go-ai-agent/internal/parser"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
 	"github.com/chowyu12/go-ai-agent/internal/store"
 )
@@ -50,6 +57,164 @@ func NewExecutor(s store.Store, registry *ToolRegistry, opts ...ExecutorOption) 
 		opt(e)
 	}
 	return e
+}
+
+func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileType model.ChatFileType) *model.File {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	l := log.WithField("url", rawURL)
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		l.WithError(err).Warn("[Execute] invalid file URL, skipping")
+		return nil
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		l.WithError(err).Warn("[Execute] fetch file URL failed, skipping")
+		return nil
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 20<<20+1))
+	resp.Body.Close()
+	if err != nil {
+		l.WithError(err).Warn("[Execute] read file URL body failed, skipping")
+		return nil
+	}
+	if int64(len(data)) > 20<<20 {
+		l.Warn("[Execute] file URL too large (>20MB), skipping")
+		return nil
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct == "" {
+		ct = "text/plain"
+	}
+	filename := path.Base(rawURL)
+	if filename == "" || filename == "." || filename == "/" {
+		filename = "remote_file"
+	}
+
+	fileType := chatFileTypeToFileType(chatFileType, ct, filename)
+	f := &model.File{
+		UUID:        rawURL,
+		Filename:    filename,
+		ContentType: ct,
+		FileSize:    int64(len(data)),
+		FileType:    fileType,
+	}
+
+	if fileType == model.FileTypeImage {
+		tmpPath := filepath.Join(os.TempDir(), "ai-agent-url-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+		if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+			l.WithError(err).Warn("[Execute] save temp image failed, skipping")
+			return nil
+		}
+		f.StoragePath = tmpPath
+	} else {
+		text, err := parser.ExtractText(ct, bytes.NewReader(data))
+		if err != nil {
+			l.WithError(err).Warn("[Execute] extract text from URL failed, using raw")
+			text = string(data)
+			if len(text) > 50*1024 {
+				text = text[:50*1024]
+			}
+		}
+		f.TextContent = text
+	}
+
+	l.WithFields(log.Fields{"filename": filename, "type": string(fileType), "size": len(data)}).Info("[Execute] remote file loaded")
+	return f
+}
+
+func chatFileTypeToFileType(chatType model.ChatFileType, contentType, filename string) model.FileType {
+	switch chatType {
+	case model.ChatFileImage:
+		return model.FileTypeImage
+	case model.ChatFileDocument:
+		return model.FileTypeDocument
+	case model.ChatFileAudio, model.ChatFileVideo:
+		return model.FileTypeDocument
+	default:
+		return classifyContentType(contentType, filename)
+	}
+}
+
+func classifyContentType(contentType, filename string) model.FileType {
+	ct := strings.ToLower(contentType)
+	fn := strings.ToLower(filename)
+
+	if strings.HasPrefix(ct, "image/") {
+		return model.FileTypeImage
+	}
+	docExts := []string{".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt"}
+	for _, ext := range docExts {
+		if strings.HasSuffix(fn, ext) {
+			return model.FileTypeDocument
+		}
+	}
+	docTypes := []string{"pdf", "word", "excel", "spreadsheet", "presentation", "officedocument"}
+	for _, dt := range docTypes {
+		if strings.Contains(ct, dt) {
+			return model.FileTypeDocument
+		}
+	}
+	return model.FileTypeText
+}
+
+func (e *Executor) loadRequestFiles(ctx context.Context, chatFiles []model.ChatFile, conversationID int64) []*model.File {
+	var files []*model.File
+	seen := make(map[string]bool)
+
+	for _, cf := range chatFiles {
+		switch cf.TransferMethod {
+		case model.TransferLocalFile:
+			if cf.UploadFileID == "" {
+				continue
+			}
+			f, err := e.store.GetFileByUUID(ctx, cf.UploadFileID)
+			if err != nil {
+				log.WithField("upload_file_id", cf.UploadFileID).WithError(err).Warn("[Execute] load uploaded file failed, skipping")
+				continue
+			}
+			seen[f.UUID] = true
+			files = append(files, f)
+		case model.TransferRemoteURL:
+			if cf.URL == "" {
+				continue
+			}
+			if seen[cf.URL] {
+				continue
+			}
+			f := e.loadRemoteFile(ctx, cf.URL, cf.Type)
+			if f != nil {
+				seen[cf.URL] = true
+				files = append(files, f)
+			}
+		}
+	}
+
+	if conversationID > 0 {
+		convFiles, err := e.store.ListFilesByConversation(ctx, conversationID)
+		if err == nil {
+			for _, f := range convFiles {
+				if !seen[f.UUID] {
+					seen[f.UUID] = true
+					files = append(files, f)
+				}
+			}
+		}
+	}
+
+	if len(files) > 0 {
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			names = append(names, fmt.Sprintf("%s(%s)", f.Filename, f.FileType))
+		}
+		log.WithField("files", names).Info("[Execute] files loaded for context")
+	}
+	return files
 }
 
 func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*ExecuteResult, error) {
@@ -101,12 +266,14 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	logResourceSummary(l, agentTools, skills, subAgentLCTools)
 	l.WithFields(log.Fields{"conv": conv.UUID}).Debug("[Execute]    conversation ready")
 
+	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
+
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
 		l.Info("[Execute]    mode = tool-augmented")
-		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap)
+		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, files)
 	}
 	l.Info("[Execute]    mode = simple")
-	return e.executeSimple(ctx, ag, prov, llmProv, conv, skills, req.Message, tracker)
+	return e.executeSimple(ctx, ag, prov, llmProv, conv, skills, req.Message, tracker, files)
 }
 
 func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Tool, map[string]string, error) {
@@ -139,7 +306,7 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 	return agentTools, toolSkillMap, nil
 }
 
-func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker) (*ExecuteResult, error) {
+func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, files []*model.File) (*ExecuteResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
 	defer cancel()
 
@@ -151,7 +318,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 		return nil, err
 	}
 
-	messages := e.buildMessages(ag, skills, history, userMsg, nil)
+	messages := e.buildMessages(ag, skills, history, userMsg, nil, files)
 	logMessages(l, messages)
 
 	opts := []llms.CallOption{
@@ -207,7 +374,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}, nil
 }
 
-func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string) (*ExecuteResult, error) {
+func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, files []*model.File) (*ExecuteResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
 	defer cancel()
 
@@ -235,7 +402,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 
 	llmToolDefs := buildLLMToolDefs(agentTools, subAgentLCTools)
 
-	messages := e.buildMessages(ag, skills, history, userMsg, allToolNames)
+	messages := e.buildMessages(ag, skills, history, userMsg, allToolNames, files)
 	logMessages(l, messages)
 
 	opts := []llms.CallOption{
@@ -468,6 +635,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	logResourceSummary(l, agentTools, skills, subAgentLCTools)
 
+	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
+
 	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
 		l.Info("[Execute]    mode = stream + tool-augmented")
 		convUUID := conv.UUID
@@ -477,7 +646,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 				Step:           &step,
 			})
 		})
-		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler)
+		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler, files)
 	}
 
 	l.Info("[Execute]    mode = stream")
@@ -492,7 +661,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		return err
 	}
 
-	messages := e.buildMessages(ag, skills, history, req.Message, nil)
+	messages := e.buildMessages(ag, skills, history, req.Message, nil, files)
 	logMessages(l, messages)
 
 	opts := []llms.CallOption{
@@ -587,8 +756,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	})
 }
 
-func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, chunkHandler func(chunk model.StreamChunk) error) error {
-	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker, toolSkillMap)
+func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, chunkHandler func(chunk model.StreamChunk) error, files []*model.File) error {
+	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker, toolSkillMap, files)
 	if err != nil {
 		return err
 	}
@@ -649,7 +818,7 @@ func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skil
 	}
 }
 
-func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string) []llms.MessageContent {
+func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string, files []*model.File) []llms.MessageContent {
 	systemPrompt := buildSystemPrompt(ag, skills, toolNames)
 
 	var messages []llms.MessageContent
@@ -662,9 +831,42 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 
 	messages = append(messages, history...)
 
+	var parts []llms.ContentPart
+	var textFiles []*model.File
+	var imageFiles []*model.File
+	for _, f := range files {
+		if f.IsImage() {
+			imageFiles = append(imageFiles, f)
+		} else if f.IsTextual() && f.TextContent != "" {
+			textFiles = append(textFiles, f)
+		}
+	}
+
+	if len(textFiles) > 0 {
+		var ctx strings.Builder
+		ctx.WriteString("以下是用户提供的参考文件内容:\n\n")
+		for _, f := range textFiles {
+			ctx.WriteString(fmt.Sprintf("--- [文件: %s] ---\n%s\n---\n\n", f.Filename, f.TextContent))
+		}
+		ctx.WriteString("用户消息: ")
+		ctx.WriteString(userMsg)
+		parts = append(parts, llms.TextContent{Text: ctx.String()})
+	} else {
+		parts = append(parts, llms.TextContent{Text: userMsg})
+	}
+
+	for _, img := range imageFiles {
+		data, err := os.ReadFile(img.StoragePath)
+		if err != nil {
+			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] read image file failed, skipping")
+			continue
+		}
+		parts = append(parts, llms.BinaryPart(img.ContentType, data))
+	}
+
 	messages = append(messages, llms.MessageContent{
 		Role:  llms.ChatMessageTypeHuman,
-		Parts: []llms.ContentPart{llms.TextContent{Text: userMsg}},
+		Parts: parts,
 	})
 
 	return messages

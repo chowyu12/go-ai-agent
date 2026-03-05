@@ -11,6 +11,12 @@ type Config struct {
 	Database DatabaseConfig `yaml:"database"`
 	Log      LogConfig      `yaml:"log"`
 	JWT      JWTConfig      `yaml:"jwt"`
+	Upload   UploadConfig   `yaml:"upload"`
+}
+
+type UploadConfig struct {
+	Dir     string `yaml:"dir"`
+	MaxSize int64  `yaml:"max_size"`
 }
 
 type JWTConfig struct {
@@ -57,6 +63,12 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.JWT.ExpireHours == 0 {
 		cfg.JWT.ExpireHours = 24
+	}
+	if cfg.Upload.Dir == "" {
+		cfg.Upload.Dir = "./uploads"
+	}
+	if cfg.Upload.MaxSize == 0 {
+		cfg.Upload.MaxSize = 20 << 20 // 20MB
 	}
 	return &cfg, nil
 }

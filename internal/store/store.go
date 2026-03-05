@@ -13,6 +13,7 @@ type Store interface {
 	SkillStore
 	ConversationStore
 	UserStore
+	FileStore
 	Close() error
 }
 
@@ -73,6 +74,15 @@ type ConversationStore interface {
 	UpdateStepsMessageID(ctx context.Context, conversationID, messageID int64) error
 	ListExecutionSteps(ctx context.Context, messageID int64) ([]model.ExecutionStep, error)
 	ListExecutionStepsByConversation(ctx context.Context, conversationID int64) ([]model.ExecutionStep, error)
+}
+
+type FileStore interface {
+	CreateFile(ctx context.Context, f *model.File) error
+	GetFileByUUID(ctx context.Context, uuid string) (*model.File, error)
+	ListFilesByConversation(ctx context.Context, conversationID int64) ([]*model.File, error)
+	ListFilesByMessage(ctx context.Context, messageID int64) ([]*model.File, error)
+	UpdateFileMessageID(ctx context.Context, fileID, messageID int64) error
+	DeleteFile(ctx context.Context, id int64) error
 }
 
 type UserStore interface {

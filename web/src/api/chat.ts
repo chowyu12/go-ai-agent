@@ -1,11 +1,34 @@
 import request, { type ListQuery } from './request'
 
+export type ChatFileType = 'document' | 'image' | 'audio' | 'video' | 'custom'
+export type TransferMethod = 'remote_url' | 'local_file'
+
+export interface ChatFile {
+  type: ChatFileType
+  transfer_method: TransferMethod
+  url?: string
+  upload_file_id?: string
+}
+
 export interface ChatRequest {
   agent_id: string
   conversation_id?: string
   user_id?: string
   message: string
   stream?: boolean
+  files?: ChatFile[]
+}
+
+export interface FileInfo {
+  id: number
+  uuid: string
+  conversation_id: number
+  message_id: number
+  filename: string
+  content_type: string
+  file_size: number
+  file_type: 'text' | 'image' | 'document'
+  created_at: string
 }
 
 export interface ExecutionStep {
@@ -66,6 +89,7 @@ export interface Message {
   role: string
   content: string
   steps?: ExecutionStep[]
+  files?: FileInfo[]
   created_at: string
 }
 
@@ -78,6 +102,18 @@ export const chatApi = {
   messageSteps: (messageId: number) => request.get(`/messages/${messageId}/steps`),
   conversationSteps: (convId: number) => request.get(`/conversations/${convId}/steps`),
   deleteConversation: (id: number) => request.delete(`/conversations/${id}`),
+}
+
+export const fileApi = {
+  upload: (file: File, conversationId?: number) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (conversationId) form.append('conversation_id', String(conversationId))
+    return request.post('/files', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
+  },
+  list: (conversationId: number) => request.get('/files', { params: { conversation_id: conversationId } }),
+  delete: (uuid: string) => request.delete(`/files/${uuid}`),
+  url: (uuid: string) => `/api/v1/files/${uuid}`,
 }
 
 export function streamChat(

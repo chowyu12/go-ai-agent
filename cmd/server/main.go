@@ -56,6 +56,7 @@ func main() {
 	handler.NewToolHandler(store).Register(mux)
 	handler.NewSkillHandler(store).Register(mux)
 	handler.NewChatHandler(store, executor).Register(mux)
+	handler.NewFileHandler(store, cfg.Upload).Register(mux)
 
 	mountFrontend(mux)
 
