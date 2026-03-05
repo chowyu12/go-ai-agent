@@ -321,7 +321,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 
 	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
-	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
+	history, err := e.memory.LoadHistory(ctx, conv.ID, ag.HistoryLimit())
 	if err != nil {
 		l.WithError(err).Error("[LLM] load history failed")
 		return nil, err
@@ -391,7 +391,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 
 	l := log.WithFields(log.Fields{"agent": ag.Name, "conv": conv.UUID})
 
-	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
+	history, err := e.memory.LoadHistory(ctx, conv.ID, ag.HistoryLimit())
 	if err != nil {
 		l.WithError(err).Error("[LLM] load history failed")
 		return nil, err
@@ -424,7 +424,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		llms.WithTools(llmToolDefs),
 	}
 
-	const maxIterations = 10
+	maxIterations := ag.IterationLimit()
 	var finalContent string
 	calledTools := make(map[string]bool)
 	totalStart := time.Now()
@@ -679,7 +679,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
 	defer cancel()
 
-	history, err := e.memory.LoadHistory(ctx, conv.ID, 50)
+	history, err := e.memory.LoadHistory(ctx, conv.ID, ag.HistoryLimit())
 	if err != nil {
 		l.WithError(err).Error("[LLM] load history failed")
 		return err

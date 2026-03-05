@@ -21,8 +21,8 @@ func (s *MySQLStore) CreateAgent(ctx context.Context, a *model.Agent) error {
 		a.Token = generateAgentToken()
 	}
 	result, err := s.db.ExecContext(ctx,
-		`INSERT INTO agents (uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, token) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-		a.UUID, a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout, a.Token,
+		`INSERT INTO agents (uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, max_history, max_iterations, token) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+		a.UUID, a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout, a.MaxHistory, a.MaxIterations, a.Token,
 	)
 	if err != nil {
 		return err
@@ -32,11 +32,11 @@ func (s *MySQLStore) CreateAgent(ctx context.Context, a *model.Agent) error {
 	return nil
 }
 
-const agentColumns = `id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, token, created_at, updated_at`
+const agentColumns = `id, uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, max_history, max_iterations, token, created_at, updated_at`
 
 func scanAgent(scanner interface{ Scan(...any) error }) (*model.Agent, error) {
 	var a model.Agent
-	err := scanner.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.Token, &a.CreatedAt, &a.UpdatedAt)
+	err := scanner.Scan(&a.ID, &a.UUID, &a.Name, &a.Description, &a.SystemPrompt, &a.ProviderID, &a.ModelName, &a.Temperature, &a.MaxTokens, &a.Timeout, &a.MaxHistory, &a.MaxIterations, &a.Token, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -117,9 +117,15 @@ func (s *MySQLStore) UpdateAgent(ctx context.Context, id int64, req model.Update
 	if req.Timeout != nil {
 		a.Timeout = *req.Timeout
 	}
+	if req.MaxHistory != nil {
+		a.MaxHistory = *req.MaxHistory
+	}
+	if req.MaxIterations != nil {
+		a.MaxIterations = *req.MaxIterations
+	}
 	_, err = s.db.ExecContext(ctx,
-		`UPDATE agents SET name=?, description=?, system_prompt=?, provider_id=?, model_name=?, temperature=?, max_tokens=?, timeout=? WHERE id=?`,
-		a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout, id,
+		`UPDATE agents SET name=?, description=?, system_prompt=?, provider_id=?, model_name=?, temperature=?, max_tokens=?, timeout=?, max_history=?, max_iterations=? WHERE id=?`,
+		a.Name, a.Description, a.SystemPrompt, a.ProviderID, a.ModelName, a.Temperature, a.MaxTokens, a.Timeout, a.MaxHistory, a.MaxIterations, id,
 	)
 	return err
 }

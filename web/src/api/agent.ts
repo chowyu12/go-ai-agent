@@ -10,6 +10,9 @@ export interface Agent {
   model_name: string
   temperature: number
   max_tokens: number
+  timeout: number
+  max_history: number
+  max_iterations: number
   token: string
   tools?: any[]
   skills?: any[]
@@ -27,6 +30,8 @@ export interface CreateAgentReq {
   temperature?: number
   max_tokens?: number
   timeout?: number
+  max_history?: number
+  max_iterations?: number
   tool_ids?: number[]
   skill_ids?: number[]
   child_ids?: number[]

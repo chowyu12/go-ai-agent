@@ -41,7 +41,9 @@ func (h *AgentHandler) Create(w http.ResponseWriter, r *http.Request) {
 		ProviderID:   req.ProviderID,
 		ModelName:    req.ModelName,
 		Temperature:  req.Temperature,
-		MaxTokens:    req.MaxTokens,
+		MaxTokens:     req.MaxTokens,
+		MaxHistory:    req.MaxHistory,
+		MaxIterations: req.MaxIterations,
 	}
 	if a.Temperature == 0 {
 		a.Temperature = 0.7
