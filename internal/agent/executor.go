@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -106,7 +107,13 @@ func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileTy
 	}
 
 	if fileType == model.FileTypeImage {
-		tmpPath := filepath.Join(os.TempDir(), "ai-agent-url-"+fmt.Sprintf("%d", time.Now().UnixNano()))
+		ext := filepath.Ext(filename)
+		if ext == "" {
+			if strings.HasPrefix(ct, "image/") {
+				ext = "." + strings.TrimPrefix(strings.SplitN(ct, ";", 2)[0], "image/")
+			}
+		}
+		tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("ai-agent-url-%d%s", time.Now().UnixNano(), ext))
 		if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
 			l.WithError(err).Warn("[Execute] save temp image failed, skipping")
 			return nil
@@ -330,10 +337,12 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 		llms.WithMaxTokens(ag.MaxTokens),
 	}
 
-	if err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0); err != nil {
+	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0)
+	if err != nil {
 		l.WithError(err).Error("[LLM] save user message failed")
 		return nil, err
 	}
+	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
 	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call")
 	start := time.Now()
@@ -390,10 +399,12 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		return nil, err
 	}
 
-	if err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0); err != nil {
+	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0)
+	if err != nil {
 		l.WithError(err).Error("[LLM] save user message failed")
 		return nil, err
 	}
+	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
 	lcTools := e.registry.BuildTrackedTools(agentTools, tracker, toolSkillMap)
 	lcTools = append(lcTools, subAgentLCTools...)
@@ -511,10 +522,9 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			pendingFiles = append(pendingFiles, fileParts...)
 		}
 		if len(pendingFiles) > 0 {
-			parts := append([]llms.ContentPart{llms.TextContent{Text: "以上工具返回了以下文件，请查看:"}}, pendingFiles...)
 			messages = append(messages, llms.MessageContent{
 				Role:  llms.ChatMessageTypeHuman,
-				Parts: parts,
+				Parts: pendingFiles,
 			})
 		}
 	}
@@ -715,10 +725,12 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		})
 	}
 
-	if err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0); err != nil {
+	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0)
+	if err != nil {
 		l.WithError(err).Error("[LLM] save user message failed")
 		return err
 	}
+	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
 	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call (stream)")
 	start := time.Now()
@@ -857,7 +869,7 @@ func buildToolResponseParts(toolCallID, toolName, toolResult string, ok bool, l 
 	l.WithFields(log.Fields{"tool": toolName, "path": fr.Path, "mime": fr.MimeType, "size": len(data)}).Info("[Tool] << attaching file to response")
 
 	if strings.HasPrefix(fr.MimeType, "image/") {
-		return resp(fr.Description), []llms.ContentPart{llms.BinaryPart(fr.MimeType, data)}
+		return resp(fr.Description), []llms.ContentPart{imageContentPart(fr.MimeType, data)}
 	}
 
 	content := string(data)
@@ -887,8 +899,23 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 	for _, f := range files {
 		if f.IsImage() {
 			imageFiles = append(imageFiles, f)
-		} else if f.IsTextual() && f.TextContent != "" {
+			continue
+		}
+		if f.IsTextual() && f.TextContent != "" {
 			textFiles = append(textFiles, f)
+			continue
+		}
+		if f.IsTextual() && f.StoragePath != "" {
+			data, err := os.ReadFile(f.StoragePath)
+			if err == nil {
+				text, err := parser.ExtractText(f.ContentType, bytes.NewReader(data))
+				if err == nil && text != "" {
+					f.TextContent = text
+					textFiles = append(textFiles, f)
+					continue
+				}
+			}
+			log.WithField("file", f.Filename).Warn("[Execute] document text extraction failed, skipping")
 		}
 	}
 
@@ -911,7 +938,7 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] read image file failed, skipping")
 			continue
 		}
-		parts = append(parts, llms.BinaryPart(img.ContentType, data))
+		parts = append(parts, imageContentPart(img.ContentType, data))
 	}
 
 	messages = append(messages, llms.MessageContent{
@@ -963,6 +990,22 @@ func extractContent(resp *llms.ContentResponse) string {
 		return ""
 	}
 	return resp.Choices[0].Content
+}
+
+func (e *Executor) linkFilesToMessage(ctx context.Context, files []*model.File, conversationID, messageID int64) {
+	for _, f := range files {
+		if f.ID == 0 {
+			continue
+		}
+		if err := e.store.LinkFileToMessage(ctx, f.ID, conversationID, messageID); err != nil {
+			log.WithFields(log.Fields{"file": f.Filename, "msg_id": messageID}).WithError(err).Warn("[Execute] link file to message failed")
+		}
+	}
+}
+
+func imageContentPart(mimeType string, data []byte) llms.ContentPart {
+	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	return llms.ImageURLContent{URL: dataURL}
 }
 
 func truncateLog(s string, maxLen int) string {

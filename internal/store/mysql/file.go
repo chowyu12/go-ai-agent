@@ -41,7 +41,7 @@ func (s *MySQLStore) GetFileByUUID(ctx context.Context, uid string) (*model.File
 
 func (s *MySQLStore) ListFilesByConversation(ctx context.Context, conversationID int64) ([]*model.File, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, uuid, conversation_id, message_id, filename, content_type, file_size, file_type, storage_path, created_at FROM files WHERE conversation_id = ? ORDER BY id`, conversationID,
+		`SELECT id, uuid, conversation_id, message_id, filename, content_type, file_size, file_type, storage_path, text_content, created_at FROM files WHERE conversation_id = ? ORDER BY id`, conversationID,
 	)
 	if err != nil {
 		return nil, err
@@ -52,7 +52,7 @@ func (s *MySQLStore) ListFilesByConversation(ctx context.Context, conversationID
 
 func (s *MySQLStore) ListFilesByMessage(ctx context.Context, messageID int64) ([]*model.File, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, uuid, conversation_id, message_id, filename, content_type, file_size, file_type, storage_path, created_at FROM files WHERE message_id = ? ORDER BY id`, messageID,
+		`SELECT id, uuid, conversation_id, message_id, filename, content_type, file_size, file_type, storage_path, text_content, created_at FROM files WHERE message_id = ? ORDER BY id`, messageID,
 	)
 	if err != nil {
 		return nil, err
@@ -66,6 +66,11 @@ func (s *MySQLStore) UpdateFileMessageID(ctx context.Context, fileID, messageID 
 	return err
 }
 
+func (s *MySQLStore) LinkFileToMessage(ctx context.Context, fileID, conversationID, messageID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE files SET conversation_id = ?, message_id = ? WHERE id = ?`, conversationID, messageID, fileID)
+	return err
+}
+
 func (s *MySQLStore) DeleteFile(ctx context.Context, id int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM files WHERE id = ?`, id)
 	return err
@@ -75,8 +80,12 @@ func scanFiles(rows *sql.Rows) ([]*model.File, error) {
 	var list []*model.File
 	for rows.Next() {
 		var f model.File
-		if err := rows.Scan(&f.ID, &f.UUID, &f.ConversationID, &f.MessageID, &f.Filename, &f.ContentType, &f.FileSize, &f.FileType, &f.StoragePath, &f.CreatedAt); err != nil {
+		var textContent sql.NullString
+		if err := rows.Scan(&f.ID, &f.UUID, &f.ConversationID, &f.MessageID, &f.Filename, &f.ContentType, &f.FileSize, &f.FileType, &f.StoragePath, &textContent, &f.CreatedAt); err != nil {
 			return nil, err
+		}
+		if textContent.Valid {
+			f.TextContent = textContent.String
 		}
 		list = append(list, &f)
 	}

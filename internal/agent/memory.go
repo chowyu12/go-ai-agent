@@ -60,14 +60,17 @@ func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, l
 	return result, nil
 }
 
-func (m *MemoryManager) SaveMessage(ctx context.Context, conversationID int64, role, content string, tokensUsed int) error {
+func (m *MemoryManager) SaveMessage(ctx context.Context, conversationID int64, role, content string, tokensUsed int) (int64, error) {
 	msg := &model.Message{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
 		TokensUsed:     tokensUsed,
 	}
-	return m.store.CreateMessage(ctx, msg)
+	if err := m.store.CreateMessage(ctx, msg); err != nil {
+		return 0, err
+	}
+	return msg.ID, nil
 }
 
 func (m *MemoryManager) AutoSetTitle(ctx context.Context, conversationID int64, userMessage string) {

@@ -85,6 +85,7 @@ type FileStore interface {
 	ListFilesByConversation(ctx context.Context, conversationID int64) ([]*model.File, error)
 	ListFilesByMessage(ctx context.Context, messageID int64) ([]*model.File, error)
 	UpdateFileMessageID(ctx context.Context, fileID, messageID int64) error
+	LinkFileToMessage(ctx context.Context, fileID, conversationID, messageID int64) error
 	DeleteFile(ctx context.Context, id int64) error
 }
 

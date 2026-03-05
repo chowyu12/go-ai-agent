@@ -366,8 +366,9 @@ func (s *mockStore) ListFilesByConversation(_ context.Context, _ int64) ([]*mode
 func (s *mockStore) ListFilesByMessage(_ context.Context, _ int64) ([]*model.File, error) {
 	return nil, nil
 }
-func (s *mockStore) UpdateFileMessageID(_ context.Context, _, _ int64) error { return nil }
-func (s *mockStore) DeleteFile(_ context.Context, _ int64) error             { return nil }
+func (s *mockStore) UpdateFileMessageID(_ context.Context, _, _ int64) error       { return nil }
+func (s *mockStore) LinkFileToMessage(_ context.Context, _, _, _ int64) error      { return nil }
+func (s *mockStore) DeleteFile(_ context.Context, _ int64) error                   { return nil }
 
 // ==================== Mock LLM Provider ====================
 

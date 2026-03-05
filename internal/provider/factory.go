@@ -1,15 +1,18 @@
 package provider
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/llms/openai"
 
@@ -115,6 +118,7 @@ func NewFromProvider(p *model.Provider, modelName string) (LLMProvider, error) {
 	opts := []openai.Option{
 		openai.WithToken(p.APIKey),
 		openai.WithBaseURL(baseURL),
+		openai.WithHTTPClient(&loggingHTTPClient{inner: http.DefaultClient}),
 	}
 	if modelName != "" {
 		opts = append(opts, openai.WithModel(modelName))
@@ -128,3 +132,50 @@ func NewFromProvider(p *model.Provider, modelName string) (LLMProvider, error) {
 }
 
 var _ LLMProvider = (*adapter)(nil)
+
+type loggingHTTPClient struct {
+	inner *http.Client
+}
+
+var base64DataRe = regexp.MustCompile(`"data:[^"]{0,50};base64,[A-Za-z0-9+/=]{200,}"`)
+
+func truncateBase64(body string) string {
+	return base64DataRe.ReplaceAllStringFunc(body, func(m string) string {
+		return m[:min(80, len(m))] + `...(base64 truncated)"`
+	})
+}
+
+func (c *loggingHTTPClient) Do(req *http.Request) (*http.Response, error) {
+	l := log.WithFields(log.Fields{"method": req.Method, "url": req.URL.String()})
+
+	if req.Body != nil {
+		bodyBytes, err := io.ReadAll(req.Body)
+		req.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("read request body: %w", err)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+
+		logBody := string(bodyBytes)
+		if len(logBody) > 50*1024 {
+			logBody = truncateBase64(logBody)
+		}
+		l.WithField("body", logBody).Debug("[LLM-HTTP] >> request")
+	}
+
+	resp, err := c.inner.Do(req)
+	if err != nil {
+		l.WithError(err).Debug("[LLM-HTTP] << error")
+		return nil, err
+	}
+
+	respBody, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		return nil, fmt.Errorf("read response body: %w", err)
+	}
+	resp.Body = io.NopCloser(bytes.NewReader(respBody))
+
+	l.WithFields(log.Fields{"status": resp.StatusCode, "body": string(respBody)}).Debug("[LLM-HTTP] << response")
+	return resp, nil
+}
