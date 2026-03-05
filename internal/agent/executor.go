@@ -117,7 +117,7 @@ func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileTy
 	}
 	f.StoragePath = tmpPath
 
-	if fileType == model.FileTypeText {
+	if fileType == model.FileTypeText || fileType == model.FileTypeDocument {
 		text, err := parser.ExtractText(ct, bytes.NewReader(data))
 		if err != nil {
 			l.WithError(err).Warn("[Execute] extract text from URL failed, using raw")
@@ -893,11 +893,13 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 
 	var parts []llms.ContentPart
 	var textFiles []*model.File
-	var binaryFiles []*model.File
+	var imageFiles []*model.File
 	for _, f := range files {
-		if f.FileType == model.FileTypeText && f.TextContent != "" {
+		if f.IsImage() && f.StoragePath != "" {
+			imageFiles = append(imageFiles, f)
+		} else if f.TextContent != "" {
 			textFiles = append(textFiles, f)
-		} else if f.FileType == model.FileTypeText && f.StoragePath != "" {
+		} else if f.StoragePath != "" {
 			data, err := os.ReadFile(f.StoragePath)
 			if err == nil {
 				text, err := parser.ExtractText(f.ContentType, bytes.NewReader(data))
@@ -907,9 +909,7 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 					continue
 				}
 			}
-			binaryFiles = append(binaryFiles, f)
-		} else if f.StoragePath != "" {
-			binaryFiles = append(binaryFiles, f)
+			log.WithField("file", f.Filename).Warn("[Execute] document text extraction failed, skipping")
 		}
 	}
 
@@ -926,13 +926,13 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 		parts = append(parts, llms.TextContent{Text: userMsg})
 	}
 
-	for _, bf := range binaryFiles {
-		data, err := os.ReadFile(bf.StoragePath)
+	for _, img := range imageFiles {
+		data, err := os.ReadFile(img.StoragePath)
 		if err != nil {
-			log.WithError(err).WithField("file", bf.Filename).Warn("[Execute] read binary file failed, skipping")
+			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] read image file failed, skipping")
 			continue
 		}
-		parts = append(parts, imageContentPart(bf.ContentType, data))
+		parts = append(parts, imageContentPart(img.ContentType, data))
 	}
 
 	messages = append(messages, llms.MessageContent{
