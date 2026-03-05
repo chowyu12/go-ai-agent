@@ -106,20 +106,18 @@ func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileTy
 		FileType:    fileType,
 	}
 
-	if fileType == model.FileTypeImage {
-		ext := filepath.Ext(filename)
-		if ext == "" {
-			if strings.HasPrefix(ct, "image/") {
-				ext = "." + strings.TrimPrefix(strings.SplitN(ct, ";", 2)[0], "image/")
-			}
-		}
-		tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("ai-agent-url-%d%s", time.Now().UnixNano(), ext))
-		if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-			l.WithError(err).Warn("[Execute] save temp image failed, skipping")
-			return nil
-		}
-		f.StoragePath = tmpPath
-	} else {
+	ext := filepath.Ext(filename)
+	if ext == "" && strings.HasPrefix(ct, "image/") {
+		ext = "." + strings.TrimPrefix(strings.SplitN(ct, ";", 2)[0], "image/")
+	}
+	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("ai-agent-url-%d%s", time.Now().UnixNano(), ext))
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		l.WithError(err).Warn("[Execute] save temp file failed, skipping")
+		return nil
+	}
+	f.StoragePath = tmpPath
+
+	if fileType == model.FileTypeText {
 		text, err := parser.ExtractText(ct, bytes.NewReader(data))
 		if err != nil {
 			l.WithError(err).Warn("[Execute] extract text from URL failed, using raw")
@@ -895,17 +893,11 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 
 	var parts []llms.ContentPart
 	var textFiles []*model.File
-	var imageFiles []*model.File
+	var binaryFiles []*model.File
 	for _, f := range files {
-		if f.IsImage() {
-			imageFiles = append(imageFiles, f)
-			continue
-		}
-		if f.IsTextual() && f.TextContent != "" {
+		if f.FileType == model.FileTypeText && f.TextContent != "" {
 			textFiles = append(textFiles, f)
-			continue
-		}
-		if f.IsTextual() && f.StoragePath != "" {
+		} else if f.FileType == model.FileTypeText && f.StoragePath != "" {
 			data, err := os.ReadFile(f.StoragePath)
 			if err == nil {
 				text, err := parser.ExtractText(f.ContentType, bytes.NewReader(data))
@@ -915,7 +907,9 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 					continue
 				}
 			}
-			log.WithField("file", f.Filename).Warn("[Execute] document text extraction failed, skipping")
+			binaryFiles = append(binaryFiles, f)
+		} else if f.StoragePath != "" {
+			binaryFiles = append(binaryFiles, f)
 		}
 	}
 
@@ -932,13 +926,13 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 		parts = append(parts, llms.TextContent{Text: userMsg})
 	}
 
-	for _, img := range imageFiles {
-		data, err := os.ReadFile(img.StoragePath)
+	for _, bf := range binaryFiles {
+		data, err := os.ReadFile(bf.StoragePath)
 		if err != nil {
-			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] read image file failed, skipping")
+			log.WithError(err).WithField("file", bf.Filename).Warn("[Execute] read binary file failed, skipping")
 			continue
 		}
-		parts = append(parts, imageContentPart(img.ContentType, data))
+		parts = append(parts, imageContentPart(bf.ContentType, data))
 	}
 
 	messages = append(messages, llms.MessageContent{
