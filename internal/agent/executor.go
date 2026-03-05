@@ -254,10 +254,14 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 		return nil, fmt.Errorf("get agent skills: %w", err)
 	}
 
+	isNewConv := req.ConversationID == ""
 	conv, err := e.memory.GetOrCreateConversation(ctx, req.ConversationID, ag.ID, req.UserID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] get/create conversation failed")
 		return nil, fmt.Errorf("get conversation: %w", err)
+	}
+	if isNewConv {
+		e.memory.AutoSetTitle(ctx, conv.ID, req.Message)
 	}
 
 	tracker := NewStepTracker(e.store, conv.ID)
@@ -624,10 +628,14 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		return err
 	}
 
+	isNewConv := req.ConversationID == ""
 	conv, err := e.memory.GetOrCreateConversation(ctx, req.ConversationID, ag.ID, req.UserID)
 	if err != nil {
 		l.WithError(err).Error("[Execute] get/create conversation failed")
 		return fmt.Errorf("get conversation: %w", err)
+	}
+	if isNewConv {
+		e.memory.AutoSetTitle(ctx, conv.ID, req.Message)
 	}
 
 	tracker := NewStepTracker(e.store, conv.ID)

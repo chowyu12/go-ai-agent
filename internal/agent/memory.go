@@ -69,3 +69,12 @@ func (m *MemoryManager) SaveMessage(ctx context.Context, conversationID int64, r
 	}
 	return m.store.CreateMessage(ctx, msg)
 }
+
+func (m *MemoryManager) AutoSetTitle(ctx context.Context, conversationID int64, userMessage string) {
+	title := userMessage
+	rs := []rune(title)
+	if len(rs) > 50 {
+		title = string(rs[:50]) + "..."
+	}
+	m.store.UpdateConversationTitle(ctx, conversationID, title)
+}

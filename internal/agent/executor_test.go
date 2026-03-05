@@ -273,6 +273,9 @@ func (s *mockStore) GetConversationByUUID(_ context.Context, uuid string) (*mode
 func (s *mockStore) ListConversations(_ context.Context, _ int64, _ string, _ model.ListQuery) ([]*model.Conversation, int64, error) {
 	return nil, 0, nil
 }
+func (s *mockStore) UpdateConversationTitle(_ context.Context, _ int64, _ string) error {
+	return nil
+}
 func (s *mockStore) DeleteConversation(_ context.Context, _ int64) error { return nil }
 func (s *mockStore) CreateMessage(_ context.Context, m *model.Message) error {
 	s.mu.Lock()

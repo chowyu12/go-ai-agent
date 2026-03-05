@@ -84,6 +84,11 @@ func (s *MySQLStore) ListConversations(ctx context.Context, agentID int64, userI
 	return list, total, rows.Err()
 }
 
+func (s *MySQLStore) UpdateConversationTitle(ctx context.Context, id int64, title string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE conversations SET title = ? WHERE id = ?`, title, id)
+	return err
+}
+
 func (s *MySQLStore) DeleteConversation(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

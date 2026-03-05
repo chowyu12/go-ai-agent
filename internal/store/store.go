@@ -65,6 +65,7 @@ type ConversationStore interface {
 	GetConversation(ctx context.Context, id int64) (*model.Conversation, error)
 	GetConversationByUUID(ctx context.Context, uuid string) (*model.Conversation, error)
 	ListConversations(ctx context.Context, agentID int64, userID string, q model.ListQuery) ([]*model.Conversation, int64, error)
+	UpdateConversationTitle(ctx context.Context, id int64, title string) error
 	DeleteConversation(ctx context.Context, id int64) error
 
 	CreateMessage(ctx context.Context, m *model.Message) error
