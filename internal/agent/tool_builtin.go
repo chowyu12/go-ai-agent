@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/google/uuid"
+	log "github.com/sirupsen/logrus"
 )
 
 func registerDefaults(r *ToolRegistry) {
@@ -33,7 +33,6 @@ func registerDefaults(r *ToolRegistry) {
 	r.RegisterBuiltin("hash_text", builtinHashText)
 	r.RegisterBuiltin("random_number", builtinRandomNumber)
 	r.RegisterBuiltin("url_reader", builtinURLReader)
-	r.RegisterBuiltin("webpage_screenshot", builtinWebpageScreenshot)
 }
 
 func builtinCurrentTime(_ context.Context, _ string) (string, error) {
@@ -154,34 +153,6 @@ func builtinURLReader(ctx context.Context, args string) (string, error) {
 func looksLikeHTML(content string) bool {
 	head := strings.ToLower(content[:min(len(content), 500)])
 	return strings.Contains(head, "<!doctype html") || strings.Contains(head, "<html")
-}
-
-func builtinWebpageScreenshot(_ context.Context, args string) (string, error) {
-	var m map[string]any
-	if err := json.Unmarshal([]byte(args), &m); err != nil {
-		return "", fmt.Errorf("invalid args: %w", err)
-	}
-	url, _ := m["url"].(string)
-	if url == "" {
-		return "", fmt.Errorf("url is required")
-	}
-
-	opt := &ScreenshotOption{}
-	if w, ok := m["width"].(float64); ok && w > 0 {
-		opt.Width = int(w)
-	}
-	if h, ok := m["height"].(float64); ok && h > 0 {
-		opt.Height = int(h)
-	}
-	if fp, ok := m["full_page"].(bool); ok {
-		opt.FullPage = fp
-	}
-
-	path, err := webpageToImage(url, opt)
-	if err != nil {
-		return "", err
-	}
-	return newFileResult(path, "image/png", fmt.Sprintf("Screenshot of %s", url)), nil
 }
 
 type toolFileResult struct {

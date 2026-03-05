@@ -223,7 +223,7 @@ func defaultTools() []model.Tool {
 			Timeout:     60,
 			FunctionDef: mustJSON(map[string]any{
 				"name":        "url_reader",
-				"description": "Read the TEXT content of a URL. Use this when you need the text/article content of a webpage. Do NOT use this together with webpage_screenshot on the same URL — choose one based on whether you need text or a visual screenshot.",
+				"description": "Read the text content of a URL. Automatically extracts text from webpages, supports both static and dynamically rendered pages.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -390,39 +390,6 @@ func defaultTools() []model.Tool {
 			HandlerConfig: mustJSON(model.CommandHandlerConfig{
 				Command: "cat {path}",
 				Timeout: 10,
-			}),
-		},
-		{
-			Name:        "webpage_screenshot",
-			Description: "将指定 URL 的网页截图保存为图片文件。需要服务器安装 Chrome/Chromium。支持设置视口宽高和整页截图。",
-			HandlerType: model.HandlerBuiltin,
-			Enabled:     true,
-			Timeout:     60,
-			FunctionDef: mustJSON(map[string]any{
-				"name":        "webpage_screenshot",
-				"description": "Take a VISUAL screenshot of a webpage. Use this when you need to see how a page looks, or when the page content is mostly visual/interactive. Do NOT use this together with url_reader on the same URL — choose one based on whether you need a visual screenshot or text content.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"url": map[string]any{
-							"type":        "string",
-							"description": "The webpage URL to screenshot, e.g. 'https://example.com'",
-						},
-						"width": map[string]any{
-							"type":        "integer",
-							"description": "Viewport width in pixels, default 1920",
-						},
-						"height": map[string]any{
-							"type":        "integer",
-							"description": "Viewport height in pixels, default 1080",
-						},
-						"full_page": map[string]any{
-							"type":        "boolean",
-							"description": "Whether to capture the full page beyond viewport, default false",
-						},
-					},
-					"required": []string{"url"},
-				},
 			}),
 		},
 	}
