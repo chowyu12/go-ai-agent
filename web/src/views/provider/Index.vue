@@ -265,9 +265,13 @@ async function handleSubmit() {
 }
 
 async function handleDelete(id: number) {
-  await providerApi.delete(id)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await providerApi.delete(id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(loadData)

@@ -27,9 +27,11 @@
           <template #default="{ row }">
             <div v-if="row.token" style="display: flex; align-items: center; gap: 4px;">
               <span style="font-family: monospace; font-size: 12px; color: #606266; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px;">{{ row.token }}</span>
-              <el-button link size="small" @click="copyToken(row.token)">
-                <el-icon><DocumentCopy /></el-icon>
-              </el-button>
+              <el-tooltip :content="copiedId === row.id ? '已复制' : '复制'" placement="top">
+                <el-button link size="small" @click="copyTokenFromList(row)">
+                  <el-icon><Select v-if="copiedId === row.id" /><DocumentCopy v-else /></el-icon>
+                </el-button>
+              </el-tooltip>
             </div>
             <span v-else style="color: #C0C4CC; font-size: 12px;">-</span>
           </template>
@@ -114,27 +116,35 @@
           <span style="margin-left: 8px; color: #909399; font-size: 12px;">默认 120 秒</span>
         </el-form-item>
 
-        <el-form-item v-if="form.id" label="API Token">
+        <el-form-item label="API Token">
           <div style="display: flex; align-items: center; gap: 8px; width: 100%;">
-            <el-input :model-value="form.token || ''" readonly placeholder="尚未生成" style="flex: 1; font-family: monospace;" />
             <template v-if="form.token">
-              <el-button @click="copyToken(form.token)">
-                <el-icon><DocumentCopy /></el-icon> 复制
-              </el-button>
+              <code class="token-display">{{ form.token }}</code>
+              <el-tooltip :content="copied ? '已复制' : '复制'" placement="top">
+                <el-button :type="copied ? 'success' : 'default'" link @click="copyToken(form.token)">
+                  <el-icon :size="16"><Select v-if="copied" /><DocumentCopy v-else /></el-icon>
+                </el-button>
+              </el-tooltip>
               <el-popconfirm title="重置后旧 Token 将失效，确定重置？" @confirm="handleResetToken">
                 <template #reference>
-                  <el-button type="warning">
-                    <el-icon><RefreshRight /></el-icon> 重置
+                  <el-button type="warning" link>
+                    <el-icon :size="16"><RefreshRight /></el-icon>
                   </el-button>
                 </template>
               </el-popconfirm>
             </template>
-            <el-button v-else type="primary" @click="handleResetToken">
-              <el-icon><Key /></el-icon> 生成
-            </el-button>
+            <template v-else-if="form.id">
+              <span style="color: #C0C4CC; font-size: 13px;">尚未生成</span>
+              <el-button type="primary" size="small" @click="handleResetToken">
+                <el-icon><Key /></el-icon> 生成
+              </el-button>
+            </template>
+            <template v-else>
+              <span style="color: #909399; font-size: 13px;">创建后自动生成</span>
+            </template>
           </div>
           <div style="font-size: 12px; color: #909399; margin-top: 4px;">
-            使用此 Token 通过 API 直接调用 Agent，无需 JWT 登录。示例：Authorization: Bearer {{ form.token || 'ag-xxx' }}
+            使用此 Token 通过 API 直接调用 Agent，无需 JWT 登录
           </div>
         </el-form-item>
 
@@ -206,7 +216,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DocumentCopy, Key, RefreshRight } from '@element-plus/icons-vue'
+import { DocumentCopy, Key, RefreshRight, Select } from '@element-plus/icons-vue'
 import { agentApi, type Agent } from '../../api/agent'
 import { providerApi, type Provider } from '../../api/provider'
 import { toolApi, type Tool } from '../../api/tool'
@@ -225,6 +235,8 @@ const keyword = ref('')
 const dialogVisible = ref(false)
 const submitting = ref(false)
 const form = ref<any>({})
+const copied = ref(false)
+const copiedId = ref<number | null>(null)
 
 const providers = ref<Provider[]>([])
 const allTools = ref<Tool[]>([])
@@ -345,11 +357,15 @@ async function handleSubmit() {
     if (form.value.id) {
       await agentApi.update(form.value.id, form.value)
       ElMessage.success('更新成功')
+      dialogVisible.value = false
     } else {
-      await agentApi.create(form.value)
-      ElMessage.success('创建成功')
+      const res: any = await agentApi.create(form.value)
+      const created = res.data
+      form.value.id = created.id
+      form.value.token = created.token
+      form.value.uuid = created.uuid
+      ElMessage.success('创建成功，请复制 API Token')
     }
-    dialogVisible.value = false
     loadData()
   } finally {
     submitting.value = false
@@ -357,15 +373,28 @@ async function handleSubmit() {
 }
 
 async function handleDelete(id: number) {
-  await agentApi.delete(id)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await agentApi.delete(id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 function copyToken(token: string) {
   if (!token) return
   navigator.clipboard.writeText(token).then(() => {
-    ElMessage.success('Token 已复制到剪贴板')
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 2000)
+  })
+}
+
+function copyTokenFromList(row: Agent) {
+  if (!row.token) return
+  navigator.clipboard.writeText(row.token).then(() => {
+    copiedId.value = row.id
+    setTimeout(() => { copiedId.value = null }, 2000)
   })
 }
 
@@ -387,4 +416,16 @@ onMounted(loadData)
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .card-title { font-size: 16px; font-weight: 600; }
+.token-display {
+  font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', Consolas, monospace;
+  font-size: 13px;
+  color: #303133;
+  background: #f4f4f5;
+  padding: 6px 12px;
+  border-radius: 4px;
+  user-select: all;
+  word-break: break-all;
+  line-height: 1.6;
+  flex: 1;
+}
 </style>

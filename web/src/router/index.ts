@@ -1,7 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { authApi } from '@/api/auth'
+import { useAuthStore } from '@/stores/auth'
 
 let _initialized: boolean | null = null
+let _tokenVerified = false
 
 async function checkInitialized(): Promise<boolean> {
   if (_initialized !== null) return _initialized
@@ -11,6 +13,22 @@ async function checkInitialized(): Promise<boolean> {
     return _initialized!
   } catch {
     return true
+  }
+}
+
+async function verifyToken(): Promise<boolean> {
+  if (_tokenVerified) return true
+  try {
+    const res: any = await authApi.me()
+    const authStore = useAuthStore()
+    authStore.setAuth(authStore.token, res.data)
+    _tokenVerified = true
+    return true
+  } catch {
+    const authStore = useAuthStore()
+    authStore.logout()
+    _tokenVerified = false
+    return false
   }
 }
 
@@ -61,12 +79,21 @@ router.beforeEach(async (to) => {
   if (!to.meta.public && !token) {
     return '/login'
   }
+
+  if (!to.meta.public && token && !_tokenVerified) {
+    const valid = await verifyToken()
+    if (!valid) {
+      return '/login'
+    }
+  }
+
   if (to.path === '/login' && token) {
     return '/'
   }
+
   if (to.meta.adminOnly) {
-    const user = JSON.parse(localStorage.getItem('user') || '{}')
-    if (user.role !== 'admin') {
+    const authStore = useAuthStore()
+    if (!authStore.isAdmin) {
       return '/'
     }
   }
@@ -74,6 +101,10 @@ router.beforeEach(async (to) => {
 
 export function resetInitialized() {
   _initialized = null
+}
+
+export function resetTokenVerified() {
+  _tokenVerified = false
 }
 
 export default router

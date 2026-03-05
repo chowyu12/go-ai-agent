@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { resetTokenVerified } from '@/router'
 
 export interface UserInfo {
   id: number
@@ -26,6 +27,7 @@ export const useAuthStore = defineStore('auth', () => {
     user.value = null
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    resetTokenVerified()
   }
 
   return { token, user, isLoggedIn, isAdmin, setAuth, logout }

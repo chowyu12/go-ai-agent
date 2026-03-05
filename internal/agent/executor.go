@@ -472,6 +472,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			Parts: aiParts,
 		})
 
+		var pendingFiles []llms.ContentPart
 		for _, tc := range choice.ToolCalls {
 			toolName := tc.FunctionCall.Name
 			toolArgs := tc.FunctionCall.Arguments
@@ -502,11 +503,18 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 				l.WithFields(log.Fields{"tool": toolName, "duration": callDur, "preview": truncateLog(output, 200)}).Info("[Tool] << ok")
 			}
 
+			resp, fileParts := buildToolResponseParts(tc.ID, toolName, toolResult, callErr == nil, l)
 			messages = append(messages, llms.MessageContent{
-				Role: llms.ChatMessageTypeTool,
-				Parts: []llms.ContentPart{
-					llms.ToolCallResponse{ToolCallID: tc.ID, Name: toolName, Content: toolResult},
-				},
+				Role:  llms.ChatMessageTypeTool,
+				Parts: []llms.ContentPart{resp},
+			})
+			pendingFiles = append(pendingFiles, fileParts...)
+		}
+		if len(pendingFiles) > 0 {
+			parts := append([]llms.ContentPart{llms.TextContent{Text: "以上工具返回了以下文件，请查看:"}}, pendingFiles...)
+			messages = append(messages, llms.MessageContent{
+				Role:  llms.ChatMessageTypeHuman,
+				Parts: parts,
 			})
 		}
 	}
@@ -824,6 +832,40 @@ func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skil
 			"used_tools": calledToolNames,
 		}).Info("[Skill] skill used")
 	}
+}
+
+func buildToolResponseParts(toolCallID, toolName, toolResult string, ok bool, l *log.Entry) (llms.ContentPart, []llms.ContentPart) {
+	resp := func(content string) llms.ContentPart {
+		return llms.ToolCallResponse{ToolCallID: toolCallID, Name: toolName, Content: content}
+	}
+
+	if !ok {
+		return resp(toolResult), nil
+	}
+
+	fr := parseFileResult(toolResult)
+	if fr == nil {
+		return resp(toolResult), nil
+	}
+
+	data, err := os.ReadFile(fr.Path)
+	if err != nil {
+		l.WithError(err).WithField("path", fr.Path).Warn("[Tool] << read file failed, using text fallback")
+		return resp(fr.Description), nil
+	}
+
+	l.WithFields(log.Fields{"tool": toolName, "path": fr.Path, "mime": fr.MimeType, "size": len(data)}).Info("[Tool] << attaching file to response")
+
+	if strings.HasPrefix(fr.MimeType, "image/") {
+		return resp(fr.Description), []llms.ContentPart{llms.BinaryPart(fr.MimeType, data)}
+	}
+
+	content := string(data)
+	const maxFileContent = 10_000
+	if len(content) > maxFileContent {
+		content = content[:maxFileContent] + "\n... (content truncated)"
+	}
+	return resp(fmt.Sprintf("%s\n\n%s", fr.Description, content)), nil
 }
 
 func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string, files []*model.File) []llms.MessageContent {

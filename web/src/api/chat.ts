@@ -94,13 +94,10 @@ export interface Message {
 }
 
 export const chatApi = {
-  complete: (data: ChatRequest) => request.post('/chat/completions', data),
   conversations: (params: ListQuery & { agent_id?: number; user_id?: string }) =>
     request.get('/conversations', { params }),
   messages: (id: number, limit?: number, withSteps?: boolean) =>
     request.get(`/conversations/${id}/messages`, { params: { limit, with_steps: withSteps ? 'true' : undefined } }),
-  messageSteps: (messageId: number) => request.get(`/messages/${messageId}/steps`),
-  conversationSteps: (convId: number) => request.get(`/conversations/${convId}/steps`),
   deleteConversation: (id: number) => request.delete(`/conversations/${id}`),
 }
 
@@ -111,9 +108,7 @@ export const fileApi = {
     if (conversationId) form.append('conversation_id', String(conversationId))
     return request.post('/files', form, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
   },
-  list: (conversationId: number) => request.get('/files', { params: { conversation_id: conversationId } }),
   delete: (uuid: string) => request.delete(`/files/${uuid}`),
-  url: (uuid: string) => `/api/v1/files/${uuid}`,
 }
 
 export function streamChat(

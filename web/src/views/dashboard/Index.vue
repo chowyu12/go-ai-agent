@@ -1,6 +1,6 @@
 <template>
   <div class="dashboard">
-    <el-row :gutter="20">
+    <el-row :gutter="20" v-loading="statsLoading">
       <el-col :span="6" v-for="card in cards" :key="card.title">
         <el-card shadow="hover" class="stat-card">
           <div class="stat-card-body">
@@ -33,11 +33,13 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { ElMessage } from 'element-plus'
 import { providerApi } from '../../api/provider'
 import { agentApi } from '../../api/agent'
 import { toolApi } from '../../api/tool'
 import { skillApi } from '../../api/skill'
 
+const statsLoading = ref(true)
 const cards = ref([
   { title: '模型供应商', value: 0, icon: 'Connection', color: '#409eff' },
   { title: 'Agent', value: 0, icon: 'UserFilled', color: '#67c23a' },
@@ -58,7 +60,9 @@ onMounted(async () => {
     cards.value[2]!.value = (tools as any).data?.total || 0
     cards.value[3]!.value = (skills as any).data?.total || 0
   } catch {
-    // ignore
+    ElMessage.warning('统计数据加载失败')
+  } finally {
+    statsLoading.value = false
   }
 })
 </script>

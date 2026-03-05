@@ -141,15 +141,23 @@ async function handleSubmit() {
 }
 
 async function toggleEnabled(row: User) {
-  await request.put(`/users/${row.id}`, { enabled: !row.enabled })
-  ElMessage.success(row.enabled ? '已禁用' : '已启用')
-  loadData()
+  try {
+    await request.put(`/users/${row.id}`, { enabled: !row.enabled })
+    ElMessage.success(row.enabled ? '已禁用' : '已启用')
+    loadData()
+  } catch {
+    ElMessage.error('操作失败')
+  }
 }
 
 async function handleDelete(id: number) {
-  await request.delete(`/users/${id}`)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await request.delete(`/users/${id}`)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(loadData)

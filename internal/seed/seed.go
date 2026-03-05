@@ -217,12 +217,13 @@ func defaultTools() []model.Tool {
 		},
 		{
 			Name:        "url_reader",
-			Description: "读取指定 URL 的网页内容（纯文本形式）。",
-			HandlerType: model.HandlerHTTP,
+			Description: "读取指定 URL 的网页内容。优先通过 HTTP 直接获取，失败时自动回退到浏览器渲染提取文本。",
+			HandlerType: model.HandlerBuiltin,
 			Enabled:     true,
+			Timeout:     60,
 			FunctionDef: mustJSON(map[string]any{
 				"name":        "url_reader",
-				"description": "Read the content of a URL and return as plain text",
+				"description": "Read the content of a URL. Tries HTTP GET first, automatically falls back to browser rendering if HTTP fails.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -232,13 +233,6 @@ func defaultTools() []model.Tool {
 						},
 					},
 					"required": []string{"url"},
-				},
-			}),
-			HandlerConfig: mustJSON(model.HTTPHandlerConfig{
-				URL:    "{url}",
-				Method: "GET",
-				Headers: map[string]string{
-					"User-Agent": "Mozilla/5.0 (compatible; AIAgent/1.0)",
 				},
 			}),
 		},
@@ -396,6 +390,39 @@ func defaultTools() []model.Tool {
 			HandlerConfig: mustJSON(model.CommandHandlerConfig{
 				Command: "cat {path}",
 				Timeout: 10,
+			}),
+		},
+		{
+			Name:        "webpage_screenshot",
+			Description: "将指定 URL 的网页截图保存为图片文件。需要服务器安装 Chrome/Chromium。支持设置视口宽高和整页截图。",
+			HandlerType: model.HandlerBuiltin,
+			Enabled:     true,
+			Timeout:     60,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "webpage_screenshot",
+				"description": "Take a screenshot of a webpage and save it as an image file. Returns the saved file path.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"url": map[string]any{
+							"type":        "string",
+							"description": "The webpage URL to screenshot, e.g. 'https://example.com'",
+						},
+						"width": map[string]any{
+							"type":        "integer",
+							"description": "Viewport width in pixels, default 1920",
+						},
+						"height": map[string]any{
+							"type":        "integer",
+							"description": "Viewport height in pixels, default 1080",
+						},
+						"full_page": map[string]any{
+							"type":        "boolean",
+							"description": "Whether to capture the full page beyond viewport, default false",
+						},
+					},
+					"required": []string{"url"},
+				},
 			}),
 		},
 	}

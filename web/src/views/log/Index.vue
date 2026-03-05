@@ -133,7 +133,7 @@
         <el-table-column label="创建时间" width="180">
           <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="100" fixed="right">
+        <el-table-column v-if="authStore.isAdmin" label="操作" width="100" fixed="right">
           <template #default="{ row }">
             <el-popconfirm title="确定删除此会话及全部记录？" @confirm="handleDelete(row.id)">
               <template #reference>
@@ -159,6 +159,9 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { chatApi, type Conversation, type Message, type ExecutionStep } from '../../api/chat'
 import { agentApi, type Agent } from '../../api/agent'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 
 interface ConvRow extends Conversation {
   _loading?: boolean
@@ -187,8 +190,12 @@ const agentNameMap = computed(() => {
 })
 
 onMounted(async () => {
-  const res: any = await agentApi.list({ page: 1, page_size: 200 })
-  agents.value = res.data?.list || []
+  try {
+    const res: any = await agentApi.list({ page: 1, page_size: 200 })
+    agents.value = res.data?.list || []
+  } catch {
+    agents.value = []
+  }
   loadData()
 })
 
@@ -224,9 +231,13 @@ async function onExpandChange(row: ConvRow, expanded: ConvRow[]) {
 }
 
 async function handleDelete(id: number) {
-  await chatApi.deleteConversation(id)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await chatApi.deleteConversation(id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 function roleLabel(role: string) {

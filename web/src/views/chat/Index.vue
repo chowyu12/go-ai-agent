@@ -97,6 +97,18 @@
               <!-- 消息内容 -->
               <div class="msg-bubble" v-html="formatMessage(msg.content)"></div>
 
+              <!-- 操作按钮 -->
+              <div class="msg-actions">
+                <button class="action-btn" @click="copyMessage(msg, i)" title="复制">
+                  <el-icon :size="14"><CopyDocument /></el-icon>
+                  <span>{{ copiedMsgIdx === i ? '已复制' : '复制' }}</span>
+                </button>
+                <button v-if="msg.role === 'assistant'" class="action-btn" @click="retryMessage(i)" :disabled="streaming" title="重试">
+                  <el-icon :size="14"><RefreshRight /></el-icon>
+                  <span>重试</span>
+                </button>
+              </div>
+
               <!-- 执行步骤 -->
               <div v-if="msg.role === 'assistant' && msg.steps && msg.steps.length > 0" class="steps-panel">
                 <div class="steps-toggle" @click="msg._showSteps = !msg._showSteps">
@@ -326,6 +338,7 @@ const uploading = ref(false)
 const conversations = ref<Conversation[]>([])
 const activeConvId = ref<number>(0)
 const loadingHistory = ref(false)
+const copiedMsgIdx = ref(-1)
 
 const currentAgentName = computed(() => {
   const a = agents.value.find(a => a.uuid === selectedAgentUUID.value)
@@ -544,6 +557,25 @@ function sendMessage() {
       scrollToBottom()
     },
   )
+}
+
+function copyMessage(msg: ChatMessage, idx: number) {
+  navigator.clipboard.writeText(msg.content).then(() => {
+    copiedMsgIdx.value = idx
+    setTimeout(() => { if (copiedMsgIdx.value === idx) copiedMsgIdx.value = -1 }, 2000)
+  })
+}
+
+function retryMessage(assistantIdx: number) {
+  if (streaming.value) return
+  let userIdx = assistantIdx - 1
+  while (userIdx >= 0 && messages.value[userIdx]?.role !== 'user') userIdx--
+  const userMsg = messages.value[userIdx]
+  if (!userMsg) return
+  const userText = userMsg.content
+  messages.value.splice(userIdx, assistantIdx - userIdx + 1)
+  inputMessage.value = userText
+  nextTick(() => sendMessage())
 }
 
 function formatMessage(text: string): string {
@@ -821,6 +853,42 @@ function truncateText(text: string, maxLen: number): string {
   background: #e8f3ff;
   border-radius: 14px 4px 14px 14px;
   box-shadow: none;
+}
+
+/* Message Actions */
+.msg-actions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.msg-row:hover .msg-actions {
+  opacity: 1;
+}
+.action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: none;
+  color: #86909c;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.action-btn:hover {
+  color: #3370ff;
+  background: #f0f6ff;
+}
+.action-btn:disabled {
+  color: #c9cdd4;
+  cursor: not-allowed;
+}
+.action-btn:disabled:hover {
+  background: none;
 }
 
 /* Attachments */

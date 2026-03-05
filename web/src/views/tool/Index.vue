@@ -201,9 +201,13 @@ async function handleSubmit() {
 }
 
 async function handleDelete(id: number) {
-  await toolApi.delete(id)
-  ElMessage.success('删除成功')
-  loadData()
+  try {
+    await toolApi.delete(id)
+    ElMessage.success('删除成功')
+    loadData()
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(loadData)

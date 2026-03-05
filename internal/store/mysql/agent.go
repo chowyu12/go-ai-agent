@@ -3,17 +3,22 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"strings"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/google/uuid"
 )
+
+func generateAgentToken() string {
+	return "ag-" + strings.ReplaceAll(uuid.New().String(), "-", "")
+}
 
 func (s *MySQLStore) CreateAgent(ctx context.Context, a *model.Agent) error {
 	if a.UUID == "" {
 		a.UUID = uuid.New().String()
 	}
 	if a.Token == "" {
-		a.Token = "ag-" + uuid.New().String()
+		a.Token = generateAgentToken()
 	}
 	result, err := s.db.ExecContext(ctx,
 		`INSERT INTO agents (uuid, name, description, system_prompt, provider_id, model_name, temperature, max_tokens, timeout, token) VALUES (?,?,?,?,?,?,?,?,?,?)`,

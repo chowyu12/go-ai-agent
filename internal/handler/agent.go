@@ -3,6 +3,7 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
@@ -140,7 +141,7 @@ func (h *AgentHandler) ResetToken(w http.ResponseWriter, r *http.Request) {
 		httputil.BadRequest(w, "invalid id")
 		return
 	}
-	newToken := "ag-" + uuid.New().String()
+	newToken := "ag-" + strings.ReplaceAll(uuid.New().String(), "-", "")
 	if err := h.store.UpdateAgentToken(r.Context(), id, newToken); err != nil {
 		httputil.InternalError(w, err.Error())
 		return
