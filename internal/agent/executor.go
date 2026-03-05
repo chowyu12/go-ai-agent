@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +15,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/tmc/langchaingo/llms"
 	"github.com/tmc/langchaingo/tools"
@@ -40,16 +40,11 @@ func WithProviderFactory(f ProviderFactory) ExecutorOption {
 	return func(e *Executor) { e.providerFactory = f }
 }
 
-func WithPublicBaseURL(url string) ExecutorOption {
-	return func(e *Executor) { e.publicBaseURL = strings.TrimRight(url, "/") }
-}
-
 type Executor struct {
 	store           store.Store
 	registry        *ToolRegistry
 	memory          *MemoryManager
 	providerFactory ProviderFactory
-	publicBaseURL   string
 }
 
 func NewExecutor(s store.Store, registry *ToolRegistry, opts ...ExecutorOption) *Executor {
@@ -884,26 +879,18 @@ func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolN
 	return resp(fmt.Sprintf("%s\n\n%s", fr.Description, content)), nil
 }
 
-func (e *Executor) imagePartForToolFile(ctx context.Context, fr *toolFileResult, data []byte) llms.ContentPart {
-	if e.publicBaseURL == "" {
-		log.Warn("[Execute] public_base_url not configured, tool image will not be visible to model")
-		return llms.TextContent{Text: fmt.Sprintf("[image: %s, %d bytes, cannot display without public_base_url]", filepath.Base(fr.Path), len(data))}
+func (e *Executor) imagePartForToolFile(_ context.Context, fr *toolFileResult, data []byte) llms.ContentPart {
+	mimeType := fr.MimeType
+	if !strings.HasPrefix(mimeType, "image/") {
+		if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") {
+			mimeType = detected
+		} else {
+			mimeType = "image/png"
+		}
 	}
-	f := &model.File{
-		UUID:        uuid.New().String(),
-		Filename:    filepath.Base(fr.Path),
-		ContentType: fr.MimeType,
-		FileSize:    int64(len(data)),
-		FileType:    model.FileTypeImage,
-		StoragePath: fr.Path,
-	}
-	if err := e.store.CreateFile(ctx, f); err != nil {
-		log.WithError(err).Warn("[Execute] save tool image to store failed")
-		return llms.TextContent{Text: fmt.Sprintf("[image: %s, save failed]", filepath.Base(fr.Path))}
-	}
-	fileURL := e.publicBaseURL + "/public/files/" + f.UUID
-	log.WithFields(log.Fields{"file": f.Filename, "url": fileURL}).Debug("[Execute] attaching tool image via URL")
-	return llms.ImageURLContent{URL: fileURL}
+	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	log.WithFields(log.Fields{"file": filepath.Base(fr.Path), "mime": mimeType, "size": len(data)}).Debug("[Execute] attaching tool image via base64")
+	return llms.ImageURLContent{URL: dataURL}
 }
 
 func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string, files []*model.File) []llms.MessageContent {
@@ -1026,12 +1013,21 @@ func (e *Executor) linkFilesToMessage(ctx context.Context, files []*model.File, 
 }
 
 func (e *Executor) imagePartForFile(f *model.File) (llms.ContentPart, error) {
-	if e.publicBaseURL == "" || f.UUID == "" {
-		return nil, fmt.Errorf("public_base_url not configured or file has no UUID")
+	data, err := os.ReadFile(f.StoragePath)
+	if err != nil {
+		return nil, err
 	}
-	fileURL := e.publicBaseURL + "/public/files/" + f.UUID
-	log.WithFields(log.Fields{"file": f.Filename, "url": fileURL}).Debug("[Execute] attaching image via URL")
-	return llms.ImageURLContent{URL: fileURL}, nil
+	mimeType := f.ContentType
+	if !strings.HasPrefix(mimeType, "image/") {
+		if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") {
+			mimeType = detected
+		} else {
+			mimeType = "image/png"
+		}
+	}
+	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
+	log.WithFields(log.Fields{"file": f.Filename, "mime": mimeType, "size": len(data)}).Debug("[Execute] attaching image via base64")
+	return llms.ImageURLContent{URL: dataURL}, nil
 }
 
 func truncateLog(s string, maxLen int) string {
