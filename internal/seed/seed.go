@@ -223,7 +223,7 @@ func defaultTools() []model.Tool {
 			Timeout:     60,
 			FunctionDef: mustJSON(map[string]any{
 				"name":        "url_reader",
-				"description": "Read the content of a URL. Tries HTTP GET first, automatically falls back to browser rendering if HTTP fails.",
+				"description": "Read the TEXT content of a URL. Use this when you need the text/article content of a webpage. Do NOT use this together with webpage_screenshot on the same URL — choose one based on whether you need text or a visual screenshot.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -400,7 +400,7 @@ func defaultTools() []model.Tool {
 			Timeout:     60,
 			FunctionDef: mustJSON(map[string]any{
 				"name":        "webpage_screenshot",
-				"description": "Take a screenshot of a webpage and save it as an image file. Returns the saved file path.",
+				"description": "Take a VISUAL screenshot of a webpage. Use this when you need to see how a page looks, or when the page content is mostly visual/interactive. Do NOT use this together with url_reader on the same URL — choose one based on whether you need a visual screenshot or text content.",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
