@@ -215,7 +215,7 @@ make deps             # 整理 Go 依赖
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/chat/completions \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "今天天气怎么样？", "user_id": "backend-service"}'
 ```
@@ -226,7 +226,7 @@ curl -X POST http://localhost:8080/api/v1/chat/completions \
 
 ```bash
 curl -N -X POST http://localhost:8080/api/v1/chat/stream \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "帮我写一个排序算法", "user_id": "backend-service"}'
 ```
@@ -236,13 +236,13 @@ curl -N -X POST http://localhost:8080/api/v1/chat/stream \
 ```bash
 # 第一轮，返回的 conversation_id 用于后续对话
 curl -X POST http://localhost:8080/api/v1/chat/completions \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "什么是微服务？", "user_id": "backend-service"}'
 
 # 第二轮，传入上一轮返回的 conversation_id
 curl -X POST http://localhost:8080/api/v1/chat/completions \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{"message": "它和单体架构有什么区别？", "conversation_id": "上一轮返回的ID", "user_id": "backend-service"}'
 ```
@@ -252,12 +252,12 @@ curl -X POST http://localhost:8080/api/v1/chat/completions \
 ```bash
 # 先上传文件，获取 upload_file_id
 curl -X POST http://localhost:8080/api/v1/files/upload \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -F "file=@document.pdf"
 
 # 在对话中引用文件
 curl -X POST http://localhost:8080/api/v1/chat/completions \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "帮我总结这个文档",
@@ -269,7 +269,7 @@ curl -X POST http://localhost:8080/api/v1/chat/completions \
 
 # 也支持直接传文件 URL
 curl -X POST http://localhost:8080/api/v1/chat/completions \
-  -H "Authorization: Bearer ag-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" \
+  -H "Authorization: Bearer ag-xxxxxxxxxxxxxxxxxxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "message": "分析这张图片",
