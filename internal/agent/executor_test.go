@@ -402,13 +402,25 @@ func (m *mockLLMProvider) CreateChatCompletion(_ context.Context, req openai.Cha
 func (m *mockLLMProvider) CreateChatCompletionStream(_ context.Context, req openai.ChatCompletionRequest) (provider.ChatStream, error) {
 	m.mu.Lock()
 	m.calls = append(m.calls, req)
-	content := m.streamContent
+	idx := m.callIdx
+	m.callIdx++
 	streamErr := m.streamErr
+	content := m.streamContent
+	var resp openai.ChatCompletionResponse
+	hasResp := idx < len(m.responses)
+	if hasResp {
+		resp = m.responses[idx]
+	}
 	m.mu.Unlock()
 
 	if streamErr != nil {
 		return nil, streamErr
 	}
+
+	if hasResp {
+		return respToStream(resp), nil
+	}
+
 	const chunkSize = 10
 	var chunks []openai.ChatCompletionStreamResponse
 	for i := 0; i < len(content); i += chunkSize {
@@ -422,6 +434,57 @@ func (m *mockLLMProvider) CreateChatCompletionStream(_ context.Context, req open
 		})
 	}
 	return &mockChatStream{chunks: chunks}, nil
+}
+
+func respToStream(resp openai.ChatCompletionResponse) provider.ChatStream {
+	var chunks []openai.ChatCompletionStreamResponse
+	if len(resp.Choices) == 0 {
+		return &mockChatStream{chunks: chunks}
+	}
+	choice := resp.Choices[0]
+
+	for i, tc := range choice.Message.ToolCalls {
+		idx := i
+		chunks = append(chunks, openai.ChatCompletionStreamResponse{
+			Choices: []openai.ChatCompletionStreamChoice{{
+				Delta: openai.ChatCompletionStreamChoiceDelta{
+					ToolCalls: []openai.ToolCall{{
+						Index:    &idx,
+						ID:       tc.ID,
+						Type:     tc.Type,
+						Function: tc.Function,
+					}},
+				},
+			}},
+		})
+	}
+
+	if choice.Message.Content != "" {
+		content := choice.Message.Content
+		const chunkSize = 10
+		for i := 0; i < len(content); i += chunkSize {
+			end := min(i+chunkSize, len(content))
+			chunks = append(chunks, openai.ChatCompletionStreamResponse{
+				Choices: []openai.ChatCompletionStreamChoice{{
+					Delta: openai.ChatCompletionStreamChoiceDelta{
+						Content: content[i:end],
+					},
+				}},
+			})
+		}
+	}
+
+	finishReason := openai.FinishReasonStop
+	if len(choice.Message.ToolCalls) > 0 {
+		finishReason = openai.FinishReasonToolCalls
+	}
+	chunks = append(chunks, openai.ChatCompletionStreamResponse{
+		Choices: []openai.ChatCompletionStreamChoice{{
+			FinishReason: finishReason,
+		}},
+	})
+
+	return &mockChatStream{chunks: chunks}
 }
 
 func (m *mockLLMProvider) callCount() int {
