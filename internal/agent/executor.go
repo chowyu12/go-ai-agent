@@ -330,10 +330,14 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	logMessages(l, messages)
 
 	req := openai.ChatCompletionRequest{
-		Model:       ag.ModelName,
-		Messages:    messages,
-		Temperature: float32(ag.Temperature),
-		MaxTokens:   ag.MaxTokens,
+		Model:    ag.ModelName,
+		Messages: messages,
+	}
+	if ag.Temperature > 0 {
+		req.Temperature = float32(ag.Temperature)
+	}
+	if ag.MaxTokens > 0 {
+		req.MaxCompletionTokens = ag.MaxTokens
 	}
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0)
@@ -343,7 +347,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}
 	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
-	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call")
+	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_completion_tokens": ag.MaxTokens}).Info("[LLM] >> call")
 	start := time.Now()
 	resp, err := llmProv.CreateChatCompletion(ctx, req)
 	duration := time.Since(start)
@@ -423,10 +427,14 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	logMessages(l, messages)
 
 	req := openai.ChatCompletionRequest{
-		Model:       ag.ModelName,
-		Temperature: float32(ag.Temperature),
-		MaxTokens:   ag.MaxTokens,
-		Tools:       toolDefs,
+		Model: ag.ModelName,
+		Tools: toolDefs,
+	}
+	if ag.Temperature > 0 {
+		req.Temperature = float32(ag.Temperature)
+	}
+	if ag.MaxTokens > 0 {
+		req.MaxCompletionTokens = ag.MaxTokens
 	}
 
 	maxIterations := ag.IterationLimit()
@@ -691,14 +699,18 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	logMessages(l, messages)
 
 	apiReq := openai.ChatCompletionRequest{
-		Model:       ag.ModelName,
-		Messages:    messages,
-		Temperature: float32(ag.Temperature),
-		MaxTokens:   ag.MaxTokens,
-		Stream:      true,
+		Model:    ag.ModelName,
+		Messages: messages,
+		Stream:   true,
 		StreamOptions: &openai.StreamOptions{
 			IncludeUsage: true,
 		},
+	}
+	if ag.Temperature > 0 {
+		apiReq.Temperature = float32(ag.Temperature)
+	}
+	if ag.MaxTokens > 0 {
+		apiReq.MaxCompletionTokens = ag.MaxTokens
 	}
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0)
@@ -708,7 +720,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
-	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call (stream)")
+	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_completion_tokens": ag.MaxTokens}).Info("[LLM] >> call (stream)")
 	start := time.Now()
 	stream, err := llmProv.CreateChatCompletionStream(ctx, apiReq)
 	if err != nil {
