@@ -1219,7 +1219,6 @@ func TestCollectTools(t *testing.T) {
 }
 
 func TestBuildMessages(t *testing.T) {
-	exec := &Executor{}
 	ag := &model.Agent{SystemPrompt: "you are a bot"}
 	skills := []model.Skill{{Name: "sk1", Instruction: "do stuff"}}
 	history := []openai.ChatCompletionMessage{
@@ -1228,7 +1227,7 @@ func TestBuildMessages(t *testing.T) {
 	}
 	toolNames := []string{"tool1"}
 
-	msgs := exec.buildMessages(ag, skills, history, "new question", toolNames, nil)
+	msgs := buildMessages(ag, skills, history, "new question", toolNames, nil)
 
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages (system + 2 history + user), got %d", len(msgs))
@@ -1246,14 +1245,13 @@ func TestBuildMessages(t *testing.T) {
 }
 
 func TestBuildMessages_WithFiles(t *testing.T) {
-	exec := &Executor{}
 	ag := &model.Agent{SystemPrompt: "you are a bot"}
 
 	files := []*model.File{
 		{Filename: "readme.txt", FileType: model.FileTypeText, TextContent: "This is a readme file content."},
 	}
 
-	msgs := exec.buildMessages(ag, nil, nil, "summarize the file", nil, files)
+	msgs := buildMessages(ag, nil, nil, "summarize the file", nil, files)
 
 	lastMsg := msgs[len(msgs)-1]
 	lastText := lastMsg.Content
@@ -1442,7 +1440,7 @@ func TestStepTracker(t *testing.T) {
 
 func TestMemoryManager_GetOrCreateConversation(t *testing.T) {
 	ms := newMockStore()
-	mm := NewMemoryManager(ms)
+	mm := NewMemoryManager(ms, ms)
 	ctx := t.Context()
 
 	conv1, err := mm.GetOrCreateConversation(ctx, "", 1, "user1")
@@ -1475,14 +1473,14 @@ func TestMemoryManager_GetOrCreateConversation(t *testing.T) {
 
 func TestMemoryManager_SaveAndLoadHistory(t *testing.T) {
 	ms := newMockStore()
-	mm := NewMemoryManager(ms)
+	mm := NewMemoryManager(ms, ms)
 	ctx := t.Context()
 
 	conv, _ := mm.GetOrCreateConversation(ctx, "", 1, "user1")
 
-	mm.SaveMessage(ctx, conv.ID, "user", "你好", 0)
-	mm.SaveMessage(ctx, conv.ID, "assistant", "你好！", 0)
-	mm.SaveMessage(ctx, conv.ID, "user", "再见", 0)
+	mm.SaveUserMessage(ctx, conv.ID, "你好", nil)
+	mm.SaveAssistantMessage(ctx, conv.ID, "你好！", 0)
+	mm.SaveUserMessage(ctx, conv.ID, "再见", nil)
 
 	history, err := mm.LoadHistory(ctx, conv.ID, 50)
 	if err != nil {
