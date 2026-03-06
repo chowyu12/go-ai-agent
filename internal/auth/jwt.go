@@ -17,6 +17,9 @@ type Claims struct {
 }
 
 func GenerateJWT(secret []byte, expireHours int, u *model.User) (string, error) {
+	if expireHours <= 0 {
+		expireHours = 24 * 7
+	}
 	now := time.Now()
 	claims := &Claims{
 		UserID:   u.ID,
