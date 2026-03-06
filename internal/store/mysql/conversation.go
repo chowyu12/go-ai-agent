@@ -95,6 +95,9 @@ func (s *MySQLStore) DeleteConversation(ctx context.Context, id int64) error {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `DELETE FROM files WHERE conversation_id = ?`, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM execution_steps WHERE conversation_id = ?`, id); err != nil {
 		return err
 	}

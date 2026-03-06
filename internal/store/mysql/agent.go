@@ -142,14 +142,28 @@ func (s *MySQLStore) DeleteAgent(ctx context.Context, id int64) error {
 	}
 	defer tx.Rollback()
 
-	for _, tbl := range []string{"agent_tools", "agent_skills", "agent_children"} {
+	for _, tbl := range []string{"agent_tools", "agent_skills"} {
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+tbl+` WHERE agent_id = ?`, id); err != nil {
 			return err
 		}
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_children WHERE parent_id = ?`, id); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_children WHERE child_id = ?`, id); err != nil {
 		return err
 	}
+
+	convCleanTables := []string{"files", "execution_steps", "messages"}
+	for _, tbl := range convCleanTables {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM `+tbl+` WHERE conversation_id IN (SELECT id FROM conversations WHERE agent_id = ?)`, id); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM conversations WHERE agent_id = ?`, id); err != nil {
+		return err
+	}
+
 	if _, err := tx.ExecContext(ctx, `DELETE FROM agents WHERE id = ?`, id); err != nil {
 		return err
 	}
