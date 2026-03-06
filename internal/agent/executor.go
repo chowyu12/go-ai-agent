@@ -333,12 +333,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 		Model:    ag.ModelName,
 		Messages: messages,
 	}
-	if ag.Temperature > 0 {
-		req.Temperature = float32(ag.Temperature)
-	}
-	if ag.MaxTokens > 0 {
-		req.MaxCompletionTokens = ag.MaxTokens
-	}
+	applyModelCaps(&req, ag, l)
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0)
 	if err != nil {
@@ -430,12 +425,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		Model: ag.ModelName,
 		Tools: toolDefs,
 	}
-	if ag.Temperature > 0 {
-		req.Temperature = float32(ag.Temperature)
-	}
-	if ag.MaxTokens > 0 {
-		req.MaxCompletionTokens = ag.MaxTokens
-	}
+	applyModelCaps(&req, ag, l)
 
 	maxIterations := ag.IterationLimit()
 	var finalContent string
@@ -706,12 +696,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 			IncludeUsage: true,
 		},
 	}
-	if ag.Temperature > 0 {
-		apiReq.Temperature = float32(ag.Temperature)
-	}
-	if ag.MaxTokens > 0 {
-		apiReq.MaxCompletionTokens = ag.MaxTokens
-	}
+	applyModelCaps(&apiReq, ag, l)
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0)
 	if err != nil {
@@ -1210,5 +1195,22 @@ func logMessages(l *log.Entry, messages []openai.ChatCompletionMessage) {
 			"len":  len(content),
 			"text": truncateLog(content, 300),
 		}).Debug("[LLM]    message")
+	}
+}
+
+func applyModelCaps(req *openai.ChatCompletionRequest, ag *model.Agent, l *log.Entry) {
+	caps := model.GetModelCaps(ag.ModelName)
+	if caps.NoTemperature || caps.NoTopP {
+		l.WithFields(log.Fields{
+			"model":          ag.ModelName,
+			"no_temperature": caps.NoTemperature,
+			"no_top_p":       caps.NoTopP,
+		}).Debug("[LLM] model caps applied")
+	}
+	if ag.Temperature > 0 && !caps.NoTemperature {
+		req.Temperature = float32(ag.Temperature)
+	}
+	if ag.MaxTokens > 0 {
+		req.MaxCompletionTokens = ag.MaxTokens
 	}
 }
