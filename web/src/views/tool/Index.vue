@@ -8,7 +8,7 @@
             <el-input v-model="keyword" placeholder="搜索" clearable style="width: 200px; margin-right: 12px;" @clear="loadData" @keyup.enter="loadData">
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
-            <el-button v-if="authStore.isAdmin" type="primary" @click="openDialog()">
+            <el-button v-if="authStore.isAdmin" type="primary" @click="router.push({ name: 'ToolCreate' })">
               <el-icon><Plus /></el-icon> 新增
             </el-button>
           </div>
@@ -37,7 +37,7 @@
         <el-table-column prop="created_at" label="创建时间" width="180" />
         <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
+            <el-button link type="primary" @click="router.push({ name: 'ToolEdit', params: { id: row.id } })">编辑</el-button>
             <el-popconfirm title="确定删除？" @confirm="handleDelete(row.id)">
               <template #reference>
                 <el-button link type="danger">删除</el-button>
@@ -54,70 +54,17 @@
         @size-change="loadData" @current-change="loadData"
       />
     </el-card>
-
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑工具' : '新增工具'" width="640px" destroy-on-close>
-      <el-form :model="form" label-width="110px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="工具名称（英文标识）" />
-        </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" placeholder="工具功能描述" />
-        </el-form-item>
-        <el-form-item label="处理器类型" required>
-          <el-select v-model="form.handler_type" placeholder="选择类型" style="width: 100%">
-            <el-option label="内置函数 (builtin)" value="builtin" />
-            <el-option label="HTTP 回调 (http)" value="http" />
-            <el-option label="命令行 (command)" value="command" />
-            <el-option label="脚本 (script)" value="script" />
-          </el-select>
-        </el-form-item>
-        <template v-if="form.handler_type === 'http'">
-          <el-form-item label="请求 URL">
-            <el-input v-model="httpConfig.url" placeholder="https://api.example.com/tool" />
-          </el-form-item>
-          <el-form-item label="请求方法">
-            <el-select v-model="httpConfig.method" style="width: 100%">
-              <el-option label="POST" value="POST" />
-              <el-option label="GET" value="GET" />
-            </el-select>
-          </el-form-item>
-        </template>
-        <template v-if="form.handler_type === 'command'">
-          <el-form-item label="命令模板" required>
-            <el-input v-model="cmdConfig.command" placeholder="ls -la {path}，用 {param} 引用 LLM 传入的参数" />
-          </el-form-item>
-          <el-form-item label="工作目录">
-            <el-input v-model="cmdConfig.working_dir" placeholder="留空使用默认目录" />
-          </el-form-item>
-          <el-form-item label="Shell">
-            <el-input v-model="cmdConfig.shell" placeholder="/bin/sh" />
-          </el-form-item>
-        </template>
-        <el-form-item label="Function Def">
-          <el-input v-model="form.function_def_str" type="textarea" :rows="6" placeholder="OpenAI Function Calling JSON Schema" />
-        </el-form-item>
-        <el-form-item label="超时(秒)">
-          <el-input-number v-model="form.timeout" :min="5" :max="300" />
-          <span style="margin-left: 8px; color: #909399; font-size: 12px;">默认 30 秒</span>
-        </el-form-item>
-        <el-form-item label="启用">
-          <el-switch v-model="form.enabled" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { toolApi, type Tool } from '../../api/tool'
 import { useAuthStore } from '@/stores/auth'
 
+const router = useRouter()
 const authStore = useAuthStore()
 const list = ref<Tool[]>([])
 const loading = ref(false)
@@ -125,12 +72,6 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
-
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const form = ref<any>({})
-const httpConfig = reactive({ url: '', method: 'POST', headers: {} })
-const cmdConfig = reactive({ command: '', working_dir: '', shell: '/bin/sh' })
 
 function handlerTagType(type: string) {
   const m: Record<string, string> = { builtin: 'success', http: 'warning', command: '', script: 'info' }
@@ -149,54 +90,6 @@ async function loadData() {
     total.value = res.data?.total || 0
   } finally {
     loading.value = false
-  }
-}
-
-function openDialog(row?: Tool) {
-  if (row) {
-    form.value = {
-      ...row,
-      function_def_str: row.function_def ? JSON.stringify(row.function_def, null, 2) : '',
-    }
-    if (row.handler_type === 'http' && row.handler_config) {
-      Object.assign(httpConfig, row.handler_config)
-    }
-    if (row.handler_type === 'command' && row.handler_config) {
-      Object.assign(cmdConfig, { command: '', working_dir: '', shell: '/bin/sh', ...row.handler_config as any })
-    }
-  } else {
-    form.value = { name: '', description: '', handler_type: 'builtin', enabled: true, timeout: 30, function_def_str: '' }
-    Object.assign(httpConfig, { url: '', method: 'POST', headers: {} })
-    Object.assign(cmdConfig, { command: '', working_dir: '', shell: '/bin/sh' })
-  }
-  dialogVisible.value = true
-}
-
-async function handleSubmit() {
-  submitting.value = true
-  try {
-    const data: any = { ...form.value }
-    if (data.function_def_str) {
-      try { data.function_def = JSON.parse(data.function_def_str) } catch { ElMessage.error('Function Def JSON 格式错误'); submitting.value = false; return }
-    }
-    delete data.function_def_str
-    if (data.handler_type === 'http') {
-      data.handler_config = { ...httpConfig }
-    }
-    if (data.handler_type === 'command') {
-      data.handler_config = { ...cmdConfig }
-    }
-    if (data.id) {
-      await toolApi.update(data.id, data)
-      ElMessage.success('更新成功')
-    } else {
-      await toolApi.create(data)
-      ElMessage.success('创建成功')
-    }
-    dialogVisible.value = false
-    loadData()
-  } finally {
-    submitting.value = false
   }
 }
 

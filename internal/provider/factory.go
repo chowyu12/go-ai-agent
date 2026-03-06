@@ -12,9 +12,8 @@ import (
 	"strings"
 	"time"
 
+	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/llms/openai"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
@@ -28,24 +27,18 @@ var DefaultBaseURLs = map[model.ProviderType]string{
 }
 
 type adapter struct {
-	llm llms.Model
+	client *openai.Client
 }
 
-func (a *adapter) GetModel() llms.Model {
-	return a.llm
+func (a *adapter) CreateChatCompletion(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
+	return a.client.CreateChatCompletion(ctx, req)
 }
 
-func (a *adapter) GenerateContent(ctx context.Context, messages []llms.MessageContent, opts ...llms.CallOption) (*llms.ContentResponse, error) {
-	return a.llm.GenerateContent(ctx, messages, opts...)
+func (a *adapter) CreateChatCompletionStream(ctx context.Context, req openai.ChatCompletionRequest) (ChatStream, error) {
+	return a.client.CreateChatCompletionStream(ctx, req)
 }
 
-func (a *adapter) StreamContent(ctx context.Context, messages []llms.MessageContent, handler func(ctx context.Context, chunk []byte) error, opts ...llms.CallOption) (*llms.ContentResponse, error) {
-	streamFn := func(_ context.Context, chunk []byte) error {
-		return handler(ctx, chunk)
-	}
-	opts = append(opts, llms.WithStreamingFunc(streamFn))
-	return a.llm.GenerateContent(ctx, messages, opts...)
-}
+var _ LLMProvider = (*adapter)(nil)
 
 func ResolveBaseURL(p *model.Provider) (string, error) {
 	baseURL := p.BaseURL
@@ -115,26 +108,18 @@ func NewFromProvider(p *model.Provider, modelName string) (LLMProvider, error) {
 		return nil, err
 	}
 
-	opts := []openai.Option{
-		openai.WithToken(p.APIKey),
-		openai.WithBaseURL(baseURL),
-		openai.WithHTTPClient(&loggingHTTPClient{inner: http.DefaultClient}),
-	}
-	if modelName != "" {
-		opts = append(opts, openai.WithModel(modelName))
+	config := openai.DefaultConfig(p.APIKey)
+	config.BaseURL = baseURL
+	config.HTTPClient = &http.Client{
+		Transport: &loggingTransport{inner: http.DefaultTransport},
 	}
 
-	llm, err := openai.New(opts...)
-	if err != nil {
-		return nil, fmt.Errorf("create llm for provider %s: %w", p.Name, err)
-	}
-	return &adapter{llm: llm}, nil
+	client := openai.NewClientWithConfig(config)
+	return &adapter{client: client}, nil
 }
 
-var _ LLMProvider = (*adapter)(nil)
-
-type loggingHTTPClient struct {
-	inner *http.Client
+type loggingTransport struct {
+	inner http.RoundTripper
 }
 
 var base64DataRe = regexp.MustCompile(`"data:[^"]{0,50};base64,[A-Za-z0-9+/=]{200,}"`)
@@ -145,7 +130,7 @@ func truncateBase64(body string) string {
 	})
 }
 
-func (c *loggingHTTPClient) Do(req *http.Request) (*http.Response, error) {
+func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	l := log.WithFields(log.Fields{"method": req.Method, "url": req.URL.String()})
 
 	if req.Body != nil {
@@ -163,10 +148,16 @@ func (c *loggingHTTPClient) Do(req *http.Request) (*http.Response, error) {
 		l.WithField("body", logBody).Debug("[LLM-HTTP] >> request")
 	}
 
-	resp, err := c.inner.Do(req)
+	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
 		l.WithError(err).Debug("[LLM-HTTP] << error")
 		return nil, err
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if strings.Contains(ct, "text/event-stream") {
+		l.WithField("status", resp.StatusCode).Debug("[LLM-HTTP] << streaming response started")
+		return resp, nil
 	}
 
 	respBody, err := io.ReadAll(resp.Body)

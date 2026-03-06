@@ -6,10 +6,15 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tmc/langchaingo/tools"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
+
+type Tool interface {
+	Name() string
+	Description() string
+	Call(ctx context.Context, input string) (string, error)
+}
 
 type BuiltinHandler func(ctx context.Context, args string) (string, error)
 
@@ -27,8 +32,8 @@ func (r *ToolRegistry) RegisterBuiltin(name string, handler BuiltinHandler) {
 	r.builtins[name] = handler
 }
 
-func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTracker, toolSkillMap map[string]string) []tools.Tool {
-	var result []tools.Tool
+func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTracker, toolSkillMap map[string]string) []Tool {
+	var result []Tool
 	for _, td := range toolDefs {
 		if !td.Enabled {
 			continue
@@ -48,7 +53,7 @@ func (r *ToolRegistry) BuildTrackedTools(toolDefs []model.Tool, tracker *StepTra
 	return result
 }
 
-func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
+func (r *ToolRegistry) buildTool(td model.Tool) Tool {
 	switch td.HandlerType {
 	case model.HandlerBuiltin:
 		handler, ok := r.builtins[td.Name]
@@ -88,7 +93,7 @@ func (r *ToolRegistry) buildTool(td model.Tool) tools.Tool {
 }
 
 type trackedTool struct {
-	baseTool  tools.Tool
+	baseTool  Tool
 	name      string
 	skillName string
 	tracker   *StepTracker
@@ -121,7 +126,7 @@ func (t *trackedTool) Call(ctx context.Context, input string) (string, error) {
 	return output, err
 }
 
-var _ tools.Tool = (*trackedTool)(nil)
+var _ Tool = (*trackedTool)(nil)
 
 type dynamicTool struct {
 	toolName string
@@ -133,4 +138,4 @@ func (t *dynamicTool) Name() string                                           { 
 func (t *dynamicTool) Description() string                                    { return t.toolDesc }
 func (t *dynamicTool) Call(ctx context.Context, input string) (string, error) { return t.handler(ctx, input) }
 
-var _ tools.Tool = (*dynamicTool)(nil)
+var _ Tool = (*dynamicTool)(nil)

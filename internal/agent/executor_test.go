@@ -5,13 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/tools"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
@@ -339,17 +339,17 @@ func (s *mockStore) ListExecutionStepsByConversation(_ context.Context, convID i
 
 // ==================== Mock UserStore (no-op) ====================
 
-func (s *mockStore) CreateUser(_ context.Context, _ *model.User) error          { return nil }
+func (s *mockStore) CreateUser(_ context.Context, _ *model.User) error { return nil }
 func (s *mockStore) GetUserByUsername(_ context.Context, _ string) (*model.User, error) {
 	return nil, nil
 }
-func (s *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error)    { return nil, nil }
+func (s *mockStore) GetUser(_ context.Context, _ int64) (*model.User, error) { return nil, nil }
 func (s *mockStore) ListUsers(_ context.Context, _ model.ListQuery) ([]*model.User, int64, error) {
 	return nil, 0, nil
 }
 func (s *mockStore) UpdateUser(_ context.Context, _ int64, _ model.UpdateUserReq) error { return nil }
 func (s *mockStore) DeleteUser(_ context.Context, _ int64) error                        { return nil }
-func (s *mockStore) HasAdmin(_ context.Context) (bool, error) { return false, nil }
+func (s *mockStore) HasAdmin(_ context.Context) (bool, error)                           { return false, nil }
 
 // ==================== Mock FileStore (no-op) ====================
 
@@ -366,44 +366,42 @@ func (s *mockStore) ListFilesByConversation(_ context.Context, _ int64) ([]*mode
 func (s *mockStore) ListFilesByMessage(_ context.Context, _ int64) ([]*model.File, error) {
 	return nil, nil
 }
-func (s *mockStore) UpdateFileMessageID(_ context.Context, _, _ int64) error       { return nil }
-func (s *mockStore) LinkFileToMessage(_ context.Context, _, _, _ int64) error      { return nil }
-func (s *mockStore) DeleteFile(_ context.Context, _ int64) error                   { return nil }
+func (s *mockStore) UpdateFileMessageID(_ context.Context, _, _ int64) error  { return nil }
+func (s *mockStore) LinkFileToMessage(_ context.Context, _, _, _ int64) error { return nil }
+func (s *mockStore) DeleteFile(_ context.Context, _ int64) error              { return nil }
 
 // ==================== Mock LLM Provider ====================
 
 type mockLLMProvider struct {
 	mu            sync.Mutex
-	responses     []*llms.ContentResponse
+	responses     []openai.ChatCompletionResponse
 	errors        []error
 	callIdx       int
-	calls         [][]llms.MessageContent
+	calls         []openai.ChatCompletionRequest
 	streamContent string
 	streamErr     error
 }
 
 var _ provider.LLMProvider = (*mockLLMProvider)(nil)
 
-func (m *mockLLMProvider) GetModel() llms.Model { return nil }
-
-func (m *mockLLMProvider) GenerateContent(_ context.Context, messages []llms.MessageContent, _ ...llms.CallOption) (*llms.ContentResponse, error) {
+func (m *mockLLMProvider) CreateChatCompletion(_ context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.calls = append(m.calls, messages)
+	m.calls = append(m.calls, req)
 	idx := m.callIdx
 	m.callIdx++
 	if idx < len(m.errors) && m.errors[idx] != nil {
-		return nil, m.errors[idx]
+		return openai.ChatCompletionResponse{}, m.errors[idx]
 	}
 	if idx < len(m.responses) {
 		return m.responses[idx], nil
 	}
-	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: ""}}}, nil
+	return openai.ChatCompletionResponse{Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Content: ""}}}}, nil
 }
 
-func (m *mockLLMProvider) StreamContent(ctx context.Context, messages []llms.MessageContent, handler func(ctx context.Context, chunk []byte) error, _ ...llms.CallOption) (*llms.ContentResponse, error) {
+func (m *mockLLMProvider) CreateChatCompletionStream(_ context.Context, req openai.ChatCompletionRequest) (provider.ChatStream, error) {
 	m.mu.Lock()
-	m.calls = append(m.calls, messages)
+	m.calls = append(m.calls, req)
 	content := m.streamContent
 	streamErr := m.streamErr
 	m.mu.Unlock()
@@ -412,13 +410,18 @@ func (m *mockLLMProvider) StreamContent(ctx context.Context, messages []llms.Mes
 		return nil, streamErr
 	}
 	const chunkSize = 10
+	var chunks []openai.ChatCompletionStreamResponse
 	for i := 0; i < len(content); i += chunkSize {
 		end := min(i+chunkSize, len(content))
-		if err := handler(ctx, []byte(content[i:end])); err != nil {
-			return nil, err
-		}
+		chunks = append(chunks, openai.ChatCompletionStreamResponse{
+			Choices: []openai.ChatCompletionStreamChoice{{
+				Delta: openai.ChatCompletionStreamChoiceDelta{
+					Content: content[i:end],
+				},
+			}},
+		})
 	}
-	return &llms.ContentResponse{Choices: []*llms.ContentChoice{{Content: content}}}, nil
+	return &mockChatStream{chunks: chunks}, nil
 }
 
 func (m *mockLLMProvider) callCount() int {
@@ -426,6 +429,22 @@ func (m *mockLLMProvider) callCount() int {
 	defer m.mu.Unlock()
 	return len(m.calls)
 }
+
+type mockChatStream struct {
+	chunks []openai.ChatCompletionStreamResponse
+	idx    int
+}
+
+func (s *mockChatStream) Recv() (openai.ChatCompletionStreamResponse, error) {
+	if s.idx >= len(s.chunks) {
+		return openai.ChatCompletionStreamResponse{}, io.EOF
+	}
+	chunk := s.chunks[s.idx]
+	s.idx++
+	return chunk, nil
+}
+
+func (s *mockChatStream) Close() error { return nil }
 
 // ==================== Test Helpers ====================
 
@@ -478,19 +497,22 @@ func newTestExecutor(s *mockStore, registry *ToolRegistry, mockLLM *mockLLMProvi
 	))
 }
 
-func textResp(content string) *llms.ContentResponse {
-	return &llms.ContentResponse{
-		Choices: []*llms.ContentChoice{{Content: content}},
+func textResp(content string) openai.ChatCompletionResponse {
+	return openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{{Message: openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant, Content: content}}},
 	}
 }
 
-func toolCallResp(toolName, args string) *llms.ContentResponse {
-	return &llms.ContentResponse{
-		Choices: []*llms.ContentChoice{{
-			ToolCalls: []llms.ToolCall{{
-				ID: "tc_" + toolName, Type: "function",
-				FunctionCall: &llms.FunctionCall{Name: toolName, Arguments: args},
-			}},
+func toolCallResp(toolName, args string) openai.ChatCompletionResponse {
+	return openai.ChatCompletionResponse{
+		Choices: []openai.ChatCompletionChoice{{
+			Message: openai.ChatCompletionMessage{
+				Role: openai.ChatMessageRoleAssistant,
+				ToolCalls: []openai.ToolCall{{
+					ID: "tc_" + toolName, Type: openai.ToolTypeFunction,
+					Function: openai.FunctionCall{Name: toolName, Arguments: args},
+				}},
+			},
 		}},
 	}
 }
@@ -603,7 +625,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 	})
 
 	t.Run("with_sub_agent_tools", func(t *testing.T) {
-		subTools := []tools.Tool{&dynamicTool{
+		subTools := []Tool{&dynamicTool{
 			toolName: "delegate_child",
 			toolDesc: "delegate to child",
 		}}
@@ -628,13 +650,8 @@ func TestBuildLLMToolDefs(t *testing.T) {
 }
 
 func TestExtractContent(t *testing.T) {
-	t.Run("nil_response", func(t *testing.T) {
-		if got := extractContent(nil); got != "" {
-			t.Errorf("expected empty, got %q", got)
-		}
-	})
 	t.Run("empty_choices", func(t *testing.T) {
-		if got := extractContent(&llms.ContentResponse{}); got != "" {
+		if got := extractContent(openai.ChatCompletionResponse{}); got != "" {
 			t.Errorf("expected empty, got %q", got)
 		}
 	})
@@ -691,7 +708,7 @@ func TestSanitizeToolName(t *testing.T) {
 func TestExecute_Simple(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
-	mockLLM := &mockLLMProvider{responses: []*llms.ContentResponse{textResp("你好世界")}}
+	mockLLM := &mockLLMProvider{responses: []openai.ChatCompletionResponse{textResp("你好世界")}}
 	exec := newTestExecutor(s, NewToolRegistry(), mockLLM)
 
 	result, err := exec.Execute(t.Context(), model.ChatRequest{
@@ -779,7 +796,7 @@ func TestExecute_WithToolCall(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "test_echo", "echo tool for test")
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			toolCallResp("test_echo", `{"text":"ping"}`),
 			textResp("工具返回了 ECHO:{\"text\":\"ping\"}"),
 		},
@@ -815,7 +832,6 @@ func TestExecute_WithToolCall(t *testing.T) {
 		t.Error("expected a tool_call execution step for test_echo")
 	}
 
-	// Verify tool steps are queryable by messageID through store
 	for _, step := range result.Steps {
 		if step.StepType == model.StepToolCall {
 			dbSteps, err := s.ListExecutionSteps(t.Context(), step.MessageID)
@@ -851,11 +867,14 @@ func TestExecute_WithMultipleToolCalls(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "tool_b", "tool B")
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
-			{Choices: []*llms.ContentChoice{{
-				ToolCalls: []llms.ToolCall{
-					{ID: "c1", Type: "function", FunctionCall: &llms.FunctionCall{Name: "tool_a", Arguments: "{}"}},
-					{ID: "c2", Type: "function", FunctionCall: &llms.FunctionCall{Name: "tool_b", Arguments: "{}"}},
+		responses: []openai.ChatCompletionResponse{
+			{Choices: []openai.ChatCompletionChoice{{
+				Message: openai.ChatCompletionMessage{
+					Role: openai.ChatMessageRoleAssistant,
+					ToolCalls: []openai.ToolCall{
+						{ID: "c1", Type: openai.ToolTypeFunction, Function: openai.FunctionCall{Name: "tool_a", Arguments: "{}"}},
+						{ID: "c2", Type: openai.ToolTypeFunction, Function: openai.FunctionCall{Name: "tool_b", Arguments: "{}"}},
+					},
 				},
 			}}},
 			textResp("综合结果: result_a 和 result_b"),
@@ -895,7 +914,7 @@ func TestExecute_ToolCallError(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "failing_tool", "tool that fails")
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			toolCallResp("failing_tool", "{}"),
 			textResp("工具调用失败了，让我直接回答"),
 		},
@@ -929,7 +948,7 @@ func TestExecute_ToolNotFoundByLLM(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "real_tool", "a real tool")
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			toolCallResp("nonexistent_tool", "{}"),
 			textResp("我没法使用那个工具"),
 		},
@@ -956,7 +975,7 @@ func TestExecute_WithSkills(t *testing.T) {
 	s.CreateSkill(ctx, sk)
 	s.SetAgentSkills(ctx, agent.ID, []int64{sk.ID})
 
-	mockLLM := &mockLLMProvider{responses: []*llms.ContentResponse{textResp("translated content")}}
+	mockLLM := &mockLLMProvider{responses: []openai.ChatCompletionResponse{textResp("translated content")}}
 	exec := newTestExecutor(s, NewToolRegistry(), mockLLM)
 
 	result, err := exec.Execute(ctx, model.ChatRequest{
@@ -969,15 +988,11 @@ func TestExecute_WithSkills(t *testing.T) {
 		t.Errorf("unexpected content: %q", result.Content)
 	}
 
-	llmMsgs := mockLLM.calls[0]
+	llmReq := mockLLM.calls[0]
 	systemMsg := ""
-	for _, msg := range llmMsgs {
-		if msg.Role == llms.ChatMessageTypeSystem {
-			for _, part := range msg.Parts {
-				if tc, ok := part.(llms.TextContent); ok {
-					systemMsg += tc.Text
-				}
-			}
+	for _, msg := range llmReq.Messages {
+		if msg.Role == openai.ChatMessageRoleSystem {
+			systemMsg += msg.Content
 		}
 	}
 	if !strings.Contains(systemMsg, "翻译指令内容") {
@@ -989,7 +1004,7 @@ func TestExecute_ConversationReuse(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			textResp("first response"),
 			textResp("second response"),
 		},
@@ -1019,10 +1034,10 @@ func TestExecute_ConversationReuse(t *testing.T) {
 		t.Errorf("expected 'second response', got %q", r2.Content)
 	}
 
-	secondCallMsgs := mockLLM.calls[1]
+	secondCallReq := mockLLM.calls[1]
 	historyCount := 0
-	for _, msg := range secondCallMsgs {
-		if msg.Role == llms.ChatMessageTypeHuman || msg.Role == llms.ChatMessageTypeAI {
+	for _, msg := range secondCallReq.Messages {
+		if msg.Role == openai.ChatMessageRoleUser || msg.Role == openai.ChatMessageRoleAssistant {
 			historyCount++
 		}
 	}
@@ -1046,7 +1061,7 @@ func TestExecute_WithSubAgents(t *testing.T) {
 	s.SetAgentChildren(ctx, parent.ID, []int64{child.ID})
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			toolCallResp("delegate_childbot", `{"input":"子任务"}`),
 			textResp("子代理完成了任务"),
 			textResp("最终结果：子代理完成了任务"),
@@ -1130,7 +1145,7 @@ func TestExecuteStream_WithTools(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "stream_echo", "echo for stream test")
 
 	mockLLM := &mockLLMProvider{
-		responses: []*llms.ContentResponse{
+		responses: []openai.ChatCompletionResponse{
 			toolCallResp("stream_echo", `{"msg":"hi"}`),
 			textResp("流式工具结果已处理"),
 		},
@@ -1207,9 +1222,9 @@ func TestBuildMessages(t *testing.T) {
 	exec := &Executor{}
 	ag := &model.Agent{SystemPrompt: "you are a bot"}
 	skills := []model.Skill{{Name: "sk1", Instruction: "do stuff"}}
-	history := []llms.MessageContent{
-		{Role: llms.ChatMessageTypeHuman, Parts: []llms.ContentPart{llms.TextContent{Text: "prev question"}}},
-		{Role: llms.ChatMessageTypeAI, Parts: []llms.ContentPart{llms.TextContent{Text: "prev answer"}}},
+	history := []openai.ChatCompletionMessage{
+		{Role: openai.ChatMessageRoleUser, Content: "prev question"},
+		{Role: openai.ChatMessageRoleAssistant, Content: "prev answer"},
 	}
 	toolNames := []string{"tool1"}
 
@@ -1218,21 +1233,15 @@ func TestBuildMessages(t *testing.T) {
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages (system + 2 history + user), got %d", len(msgs))
 	}
-	if msgs[0].Role != llms.ChatMessageTypeSystem {
+	if msgs[0].Role != openai.ChatMessageRoleSystem {
 		t.Errorf("first message should be system, got %s", msgs[0].Role)
 	}
 	lastMsg := msgs[len(msgs)-1]
-	if lastMsg.Role != llms.ChatMessageTypeHuman {
-		t.Errorf("last message should be human, got %s", lastMsg.Role)
+	if lastMsg.Role != openai.ChatMessageRoleUser {
+		t.Errorf("last message should be user, got %s", lastMsg.Role)
 	}
-	lastText := ""
-	for _, part := range lastMsg.Parts {
-		if tc, ok := part.(llms.TextContent); ok {
-			lastText = tc.Text
-		}
-	}
-	if lastText != "new question" {
-		t.Errorf("last message content should be 'new question', got %q", lastText)
+	if lastMsg.Content != "new question" {
+		t.Errorf("last message content should be 'new question', got %q", lastMsg.Content)
 	}
 }
 
@@ -1247,12 +1256,7 @@ func TestBuildMessages_WithFiles(t *testing.T) {
 	msgs := exec.buildMessages(ag, nil, nil, "summarize the file", nil, files)
 
 	lastMsg := msgs[len(msgs)-1]
-	lastText := ""
-	for _, part := range lastMsg.Parts {
-		if tc, ok := part.(llms.TextContent); ok {
-			lastText = tc.Text
-		}
-	}
+	lastText := lastMsg.Content
 	if !strings.Contains(lastText, "readme.txt") {
 		t.Errorf("expected file reference in message, got %q", lastText)
 	}
@@ -1487,10 +1491,10 @@ func TestMemoryManager_SaveAndLoadHistory(t *testing.T) {
 	if len(history) != 3 {
 		t.Fatalf("expected 3 history messages, got %d", len(history))
 	}
-	if history[0].Role != llms.ChatMessageTypeHuman {
-		t.Errorf("first message should be human, got %s", history[0].Role)
+	if history[0].Role != openai.ChatMessageRoleUser {
+		t.Errorf("first message should be user, got %s", history[0].Role)
 	}
-	if history[1].Role != llms.ChatMessageTypeAI {
-		t.Errorf("second message should be AI, got %s", history[1].Role)
+	if history[1].Role != openai.ChatMessageRoleAssistant {
+		t.Errorf("second message should be assistant, got %s", history[1].Role)
 	}
 }

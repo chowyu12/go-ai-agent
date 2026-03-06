@@ -9,6 +9,7 @@ export interface Tool {
   handler_type: string
   handler_config: any
   enabled: boolean
+  timeout: number
   created_at: string
   updated_at: string
 }
@@ -20,6 +21,7 @@ export interface CreateToolReq {
   handler_type: string
   handler_config?: any
   enabled?: boolean
+  timeout?: number
 }
 
 export const toolApi = {

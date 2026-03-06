@@ -3,7 +3,7 @@ package agent
 import (
 	"context"
 
-	"github.com/tmc/langchaingo/llms"
+	openai "github.com/sashabaranov/go-openai"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
@@ -35,26 +35,26 @@ func (m *MemoryManager) GetOrCreateConversation(ctx context.Context, conversatio
 	return conv, nil
 }
 
-func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, limit int) ([]llms.MessageContent, error) {
+func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, limit int) ([]openai.ChatCompletionMessage, error) {
 	msgs, err := m.store.ListMessages(ctx, conversationID, limit)
 	if err != nil {
 		return nil, err
 	}
 
-	var result []llms.MessageContent
+	var result []openai.ChatCompletionMessage
 	for _, msg := range msgs {
-		role := llms.ChatMessageTypeHuman
+		role := openai.ChatMessageRoleUser
 		switch msg.Role {
 		case "assistant":
-			role = llms.ChatMessageTypeAI
+			role = openai.ChatMessageRoleAssistant
 		case "system":
-			role = llms.ChatMessageTypeSystem
+			role = openai.ChatMessageRoleSystem
 		case "tool":
-			role = llms.ChatMessageTypeTool
+			role = openai.ChatMessageRoleTool
 		}
-		result = append(result, llms.MessageContent{
-			Role:  role,
-			Parts: []llms.ContentPart{llms.TextContent{Text: msg.Content}},
+		result = append(result, openai.ChatCompletionMessage{
+			Role:    role,
+			Content: msg.Content,
 		})
 	}
 	return result, nil

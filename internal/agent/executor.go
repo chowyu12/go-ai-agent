@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,11 +14,9 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
-	"github.com/tmc/langchaingo/llms"
-	"github.com/tmc/langchaingo/tools"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/parser"
@@ -270,16 +269,16 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	}
 
 	tracker := NewStepTracker(e.store, conv.ID)
-	subAgentLCTools := e.buildSubAgentLCTools(ctx, ag.ID, tracker)
+	subAgentTools := e.buildSubAgentTools(ctx, ag.ID, tracker)
 
-	logResourceSummary(l, agentTools, skills, subAgentLCTools)
+	logResourceSummary(l, agentTools, skills, subAgentTools)
 	l.WithFields(log.Fields{"conv": conv.UUID}).Debug("[Execute]    conversation ready")
 
 	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
 
-	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
+	if len(agentTools) > 0 || len(subAgentTools) > 0 {
 		l.Info("[Execute]    mode = tool-augmented")
-		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, files)
+		return e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentTools, conv, skills, req.Message, tracker, toolSkillMap, files)
 	}
 	l.Info("[Execute]    mode = simple")
 	return e.executeSimple(ctx, ag, prov, llmProv, conv, skills, req.Message, tracker, files)
@@ -330,9 +329,11 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	messages := e.buildMessages(ag, skills, history, userMsg, nil, files)
 	logMessages(l, messages)
 
-	opts := []llms.CallOption{
-		llms.WithTemperature(ag.Temperature),
-		llms.WithMaxTokens(ag.MaxTokens),
+	req := openai.ChatCompletionRequest{
+		Model:       ag.ModelName,
+		Messages:    messages,
+		Temperature: float32(ag.Temperature),
+		MaxTokens:   ag.MaxTokens,
 	}
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", userMsg, 0)
@@ -344,7 +345,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 
 	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call")
 	start := time.Now()
-	resp, err := llmProv.GenerateContent(ctx, messages, opts...)
+	resp, err := llmProv.CreateChatCompletion(ctx, req)
 	duration := time.Since(start)
 
 	if err != nil {
@@ -385,7 +386,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}, nil
 }
 
-func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, files []*model.File) (*ExecuteResult, error) {
+func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentTools []Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, files []*model.File) (*ExecuteResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(ag.TimeoutSeconds())*time.Second)
 	defer cancel()
 
@@ -405,23 +406,24 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	e.linkFilesToMessage(ctx, files, conv.ID, userMsgID)
 
 	lcTools := e.registry.BuildTrackedTools(agentTools, tracker, toolSkillMap)
-	lcTools = append(lcTools, subAgentLCTools...)
-	toolMap := make(map[string]tools.Tool, len(lcTools))
+	lcTools = append(lcTools, subAgentTools...)
+	toolMap := make(map[string]Tool, len(lcTools))
 	allToolNames := make([]string, 0, len(lcTools))
 	for _, t := range lcTools {
 		toolMap[t.Name()] = t
 		allToolNames = append(allToolNames, t.Name())
 	}
 
-	llmToolDefs := buildLLMToolDefs(agentTools, subAgentLCTools)
+	toolDefs := buildLLMToolDefs(agentTools, subAgentTools)
 
 	messages := e.buildMessages(ag, skills, history, userMsg, allToolNames, files)
 	logMessages(l, messages)
 
-	opts := []llms.CallOption{
-		llms.WithTemperature(ag.Temperature),
-		llms.WithMaxTokens(ag.MaxTokens),
-		llms.WithTools(llmToolDefs),
+	req := openai.ChatCompletionRequest{
+		Model:       ag.ModelName,
+		Temperature: float32(ag.Temperature),
+		MaxTokens:   ag.MaxTokens,
+		Tools:       toolDefs,
 	}
 
 	maxIterations := ag.IterationLimit()
@@ -430,9 +432,10 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	totalStart := time.Now()
 
 	for i := range maxIterations {
+		req.Messages = messages
 		l.WithFields(log.Fields{"round": i + 1, "model": ag.ModelName}).Info("[LLM] >> call")
 		iterStart := time.Now()
-		resp, err := llmProv.GenerateContent(ctx, messages, opts...)
+		resp, err := llmProv.CreateChatCompletion(ctx, req)
 		iterDur := time.Since(iterStart)
 
 		if err != nil {
@@ -452,8 +455,8 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 
 		choice := resp.Choices[0]
 
-		if len(choice.ToolCalls) == 0 {
-			finalContent = choice.Content
+		if len(choice.Message.ToolCalls) == 0 {
+			finalContent = choice.Message.Content
 			l.WithFields(log.Fields{
 				"round":    i + 1,
 				"duration": iterDur,
@@ -463,38 +466,28 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			break
 		}
 
-		tcNames := make([]string, 0, len(choice.ToolCalls))
-		for _, tc := range choice.ToolCalls {
-			tcNames = append(tcNames, tc.FunctionCall.Name)
+		tcNames := make([]string, 0, len(choice.Message.ToolCalls))
+		for _, tc := range choice.Message.ToolCalls {
+			tcNames = append(tcNames, tc.Function.Name)
 		}
 		l.WithFields(log.Fields{"round": i + 1, "duration": iterDur, "tool_calls": tcNames}).Info("[LLM] << tool calls requested")
 
-		aiParts := make([]llms.ContentPart, 0, len(choice.ToolCalls)+1)
-		if choice.Content != "" {
-			aiParts = append(aiParts, llms.TextContent{Text: choice.Content})
-		}
-		for _, tc := range choice.ToolCalls {
-			aiParts = append(aiParts, tc)
-		}
-		messages = append(messages, llms.MessageContent{
-			Role:  llms.ChatMessageTypeAI,
-			Parts: aiParts,
-		})
+		messages = append(messages, choice.Message)
 
-		var pendingFiles []llms.ContentPart
-		for _, tc := range choice.ToolCalls {
-			toolName := tc.FunctionCall.Name
-			toolArgs := tc.FunctionCall.Arguments
+		var pendingParts []openai.ChatMessagePart
+		for _, tc := range choice.Message.ToolCalls {
+			toolName := tc.Function.Name
+			toolArgs := tc.Function.Arguments
 
 			tool, ok := toolMap[toolName]
 			if !ok {
 				errMsg := fmt.Sprintf("tool %q not found", toolName)
 				l.WithField("tool", toolName).Warn("[Tool] tool not registered, skipping")
-				messages = append(messages, llms.MessageContent{
-					Role: llms.ChatMessageTypeTool,
-					Parts: []llms.ContentPart{
-						llms.ToolCallResponse{ToolCallID: tc.ID, Name: toolName, Content: errMsg},
-					},
+				messages = append(messages, openai.ChatCompletionMessage{
+					Role:       openai.ChatMessageRoleTool,
+					Content:    errMsg,
+					ToolCallID: tc.ID,
+					Name:       toolName,
 				})
 				continue
 			}
@@ -512,17 +505,17 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 				l.WithFields(log.Fields{"tool": toolName, "duration": callDur, "preview": truncateLog(output, 200)}).Info("[Tool] << ok")
 			}
 
-			resp, fileParts := e.buildToolResponseParts(ctx, tc.ID, toolName, toolResult, callErr == nil, l)
-			messages = append(messages, llms.MessageContent{
-				Role:  llms.ChatMessageTypeTool,
-				Parts: []llms.ContentPart{resp},
-			})
-			pendingFiles = append(pendingFiles, fileParts...)
+			toolMsg, fileParts := e.buildToolResponseParts(ctx, tc.ID, toolName, toolResult, callErr == nil, l)
+			messages = append(messages, toolMsg)
+			pendingParts = append(pendingParts, fileParts...)
 		}
-		if len(pendingFiles) > 0 {
-			messages = append(messages, llms.MessageContent{
-				Role:  llms.ChatMessageTypeHuman,
-				Parts: pendingFiles,
+		if len(pendingParts) > 0 {
+			parts := append([]openai.ChatMessagePart{
+				{Type: openai.ChatMessagePartTypeText, Text: "工具返回了以下文件:"},
+			}, pendingParts...)
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:         openai.ChatMessageRoleUser,
+				MultiContent: parts,
 			})
 		}
 	}
@@ -556,14 +549,14 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	}, nil
 }
 
-func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []tools.Tool) []llms.Tool {
-	var result []llms.Tool
+func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []Tool) []openai.Tool {
+	var result []openai.Tool
 
 	for _, mt := range modelTools {
 		if !mt.Enabled {
 			continue
 		}
-		fd := &llms.FunctionDefinition{
+		fd := &openai.FunctionDefinition{
 			Name:        mt.Name,
 			Description: mt.Description,
 		}
@@ -584,13 +577,13 @@ func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []tools.Tool) []llm
 				"properties": map[string]any{},
 			}
 		}
-		result = append(result, llms.Tool{Type: "function", Function: fd})
+		result = append(result, openai.Tool{Type: openai.ToolTypeFunction, Function: fd})
 	}
 
 	for _, t := range subAgentTools {
-		result = append(result, llms.Tool{
-			Type: "function",
-			Function: &llms.FunctionDefinition{
+		result = append(result, openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
 				Name:        t.Name(),
 				Description: t.Description(),
 				Parameters: map[string]any{
@@ -655,13 +648,13 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 
 	tracker := NewStepTracker(e.store, conv.ID)
-	subAgentLCTools := e.buildSubAgentLCTools(ctx, ag.ID, tracker)
+	subAgentTools := e.buildSubAgentTools(ctx, ag.ID, tracker)
 
-	logResourceSummary(l, agentTools, skills, subAgentLCTools)
+	logResourceSummary(l, agentTools, skills, subAgentTools)
 
 	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
 
-	if len(agentTools) > 0 || len(subAgentLCTools) > 0 {
+	if len(agentTools) > 0 || len(subAgentTools) > 0 {
 		l.Info("[Execute]    mode = stream + tool-augmented")
 		convUUID := conv.UUID
 		tracker.SetOnStep(func(step model.ExecutionStep) {
@@ -670,7 +663,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 				Step:           &step,
 			})
 		})
-		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler, files)
+		return e.streamWithTools(ctx, ag, prov, llmProv, agentTools, subAgentTools, conv, skills, req.Message, tracker, toolSkillMap, chunkHandler, files)
 	}
 
 	l.Info("[Execute]    mode = stream")
@@ -688,39 +681,12 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	messages := e.buildMessages(ag, skills, history, req.Message, nil, files)
 	logMessages(l, messages)
 
-	opts := []llms.CallOption{
-		llms.WithTemperature(ag.Temperature),
-		llms.WithMaxTokens(ag.MaxTokens),
-	}
-
-	var fullContent strings.Builder
-	var chunkCount int
-	var utf8Buf []byte
-
-	streamHandler := func(_ context.Context, chunk []byte) error {
-		chunkCount++
-		if len(utf8Buf) > 0 {
-			chunk = append(utf8Buf, chunk...)
-			utf8Buf = nil
-		}
-		if !utf8.Valid(chunk) {
-			l.WithField("hex", fmt.Sprintf("%x", chunk)).Debug("[Stream] incomplete UTF-8 chunk, buffering tail")
-			i := len(chunk)
-			for i > 0 && !utf8.Valid(chunk[:i]) {
-				i--
-			}
-			utf8Buf = append(utf8Buf, chunk[i:]...)
-			chunk = chunk[:i]
-		}
-		if len(chunk) == 0 {
-			return nil
-		}
-		text := string(chunk)
-		fullContent.WriteString(text)
-		return chunkHandler(model.StreamChunk{
-			ConversationID: conv.UUID,
-			Delta:          text,
-		})
+	apiReq := openai.ChatCompletionRequest{
+		Model:       ag.ModelName,
+		Messages:    messages,
+		Temperature: float32(ag.Temperature),
+		MaxTokens:   ag.MaxTokens,
+		Stream:      true,
 	}
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0)
@@ -732,20 +698,10 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	l.WithFields(log.Fields{"model": ag.ModelName, "temperature": ag.Temperature, "max_tokens": ag.MaxTokens}).Info("[LLM] >> call (stream)")
 	start := time.Now()
-	_, err = llmProv.StreamContent(ctx, messages, streamHandler, opts...)
-	duration := time.Since(start)
-
-	if len(utf8Buf) > 0 {
-		fullContent.Write(utf8Buf)
-		_ = chunkHandler(model.StreamChunk{
-			ConversationID: conv.UUID,
-			Delta:          string(utf8Buf),
-		})
-		utf8Buf = nil
-	}
-
+	stream, err := llmProv.CreateChatCompletionStream(ctx, apiReq)
 	if err != nil {
-		l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount}).WithError(err).Error("[LLM] << failed")
+		duration := time.Since(start)
+		l.WithFields(log.Fields{"duration": duration}).WithError(err).Error("[LLM] << stream create failed")
 		tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, "", model.StepError, err.Error(), duration, 0, &model.StepMetadata{
 			Provider:    prov.Name,
 			Model:       ag.ModelName,
@@ -753,7 +709,44 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		})
 		return fmt.Errorf("stream content: %w", err)
 	}
+	defer stream.Close()
 
+	var fullContent strings.Builder
+	var chunkCount int
+
+	for {
+		response, recvErr := stream.Recv()
+		if errors.Is(recvErr, io.EOF) {
+			break
+		}
+		if recvErr != nil {
+			duration := time.Since(start)
+			l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount}).WithError(recvErr).Error("[LLM] << stream recv failed")
+			tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, "", model.StepError, recvErr.Error(), duration, 0, &model.StepMetadata{
+				Provider:    prov.Name,
+				Model:       ag.ModelName,
+				Temperature: ag.Temperature,
+			})
+			return fmt.Errorf("stream content: %w", recvErr)
+		}
+		if len(response.Choices) == 0 {
+			continue
+		}
+		delta := response.Choices[0].Delta.Content
+		if delta == "" {
+			continue
+		}
+		chunkCount++
+		fullContent.WriteString(delta)
+		if err := chunkHandler(model.StreamChunk{
+			ConversationID: conv.UUID,
+			Delta:          delta,
+		}); err != nil {
+			return err
+		}
+	}
+
+	duration := time.Since(start)
 	content := fullContent.String()
 	l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
 
@@ -782,8 +775,8 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	})
 }
 
-func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentLCTools []tools.Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, chunkHandler func(chunk model.StreamChunk) error, files []*model.File) error {
-	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentLCTools, conv, skills, userMsg, tracker, toolSkillMap, files)
+func (e *Executor) streamWithTools(ctx context.Context, ag *model.Agent, prov *model.Provider, llmProv provider.LLMProvider, agentTools []model.Tool, subAgentTools []Tool, conv *model.Conversation, skills []model.Skill, userMsg string, tracker *StepTracker, toolSkillMap map[string]string, chunkHandler func(chunk model.StreamChunk) error, files []*model.File) error {
+	result, err := e.executeWithTools(ctx, ag, prov, llmProv, agentTools, subAgentTools, conv, skills, userMsg, tracker, toolSkillMap, files)
 	if err != nil {
 		return err
 	}
@@ -844,31 +837,36 @@ func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skil
 	}
 }
 
-func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolName, toolResult string, ok bool, l *log.Entry) (llms.ContentPart, []llms.ContentPart) {
-	resp := func(content string) llms.ContentPart {
-		return llms.ToolCallResponse{ToolCallID: toolCallID, Name: toolName, Content: content}
+func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolName, toolResult string, ok bool, l *log.Entry) (openai.ChatCompletionMessage, []openai.ChatMessagePart) {
+	toolMsg := func(content string) openai.ChatCompletionMessage {
+		return openai.ChatCompletionMessage{
+			Role:       openai.ChatMessageRoleTool,
+			Content:    content,
+			ToolCallID: toolCallID,
+			Name:       toolName,
+		}
 	}
 
 	if !ok {
-		return resp(toolResult), nil
+		return toolMsg(toolResult), nil
 	}
 
 	fr := parseFileResult(toolResult)
 	if fr == nil {
-		return resp(toolResult), nil
+		return toolMsg(toolResult), nil
 	}
 
 	data, err := os.ReadFile(fr.Path)
 	if err != nil {
 		l.WithError(err).WithField("path", fr.Path).Warn("[Tool] << read file failed, using text fallback")
-		return resp(fr.Description), nil
+		return toolMsg(fr.Description), nil
 	}
 
 	l.WithFields(log.Fields{"tool": toolName, "path": fr.Path, "mime": fr.MimeType, "size": len(data)}).Info("[Tool] << attaching file to response")
 
 	if strings.HasPrefix(fr.MimeType, "image/") {
 		imgPart := e.imagePartForToolFile(ctx, fr, data)
-		return resp(fr.Description), []llms.ContentPart{imgPart}
+		return toolMsg(fr.Description), []openai.ChatMessagePart{imgPart}
 	}
 
 	content := string(data)
@@ -876,10 +874,10 @@ func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolN
 	if len(content) > maxFileContent {
 		content = content[:maxFileContent] + "\n... (content truncated)"
 	}
-	return resp(fmt.Sprintf("%s\n\n%s", fr.Description, content)), nil
+	return toolMsg(fmt.Sprintf("%s\n\n%s", fr.Description, content)), nil
 }
 
-func (e *Executor) imagePartForToolFile(_ context.Context, fr *toolFileResult, data []byte) llms.ContentPart {
+func (e *Executor) imagePartForToolFile(_ context.Context, fr *toolFileResult, data []byte) openai.ChatMessagePart {
 	mimeType := fr.MimeType
 	if !strings.HasPrefix(mimeType, "image/") {
 		if detected := http.DetectContentType(data); strings.HasPrefix(detected, "image/") {
@@ -890,23 +888,25 @@ func (e *Executor) imagePartForToolFile(_ context.Context, fr *toolFileResult, d
 	}
 	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
 	log.WithFields(log.Fields{"file": filepath.Base(fr.Path), "mime": mimeType, "size": len(data)}).Debug("[Execute] attaching tool image via base64")
-	return llms.ImageURLContent{URL: dataURL}
+	return openai.ChatMessagePart{
+		Type:     openai.ChatMessagePartTypeImageURL,
+		ImageURL: &openai.ChatMessageImageURL{URL: dataURL},
+	}
 }
 
-func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []llms.MessageContent, userMsg string, toolNames []string, files []*model.File) []llms.MessageContent {
+func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatCompletionMessage, userMsg string, toolNames []string, files []*model.File) []openai.ChatCompletionMessage {
 	systemPrompt := buildSystemPrompt(ag, skills, toolNames)
 
-	var messages []llms.MessageContent
+	var messages []openai.ChatCompletionMessage
 	if systemPrompt != "" {
-		messages = append(messages, llms.MessageContent{
-			Role:  llms.ChatMessageTypeSystem,
-			Parts: []llms.ContentPart{llms.TextContent{Text: systemPrompt}},
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: systemPrompt,
 		})
 	}
 
 	messages = append(messages, history...)
 
-	var parts []llms.ContentPart
 	var textFiles []*model.File
 	var imageFiles []*model.File
 	for _, f := range files {
@@ -928,32 +928,40 @@ func (e *Executor) buildMessages(ag *model.Agent, skills []model.Skill, history 
 		}
 	}
 
+	userText := userMsg
 	if len(textFiles) > 0 {
-		var ctx strings.Builder
-		ctx.WriteString("以下是用户提供的参考文件内容:\n\n")
+		var sb strings.Builder
+		sb.WriteString("以下是用户提供的参考文件内容:\n\n")
 		for _, f := range textFiles {
-			ctx.WriteString(fmt.Sprintf("--- [文件: %s] ---\n%s\n---\n\n", f.Filename, f.TextContent))
+			sb.WriteString(fmt.Sprintf("--- [文件: %s] ---\n%s\n---\n\n", f.Filename, f.TextContent))
 		}
-		ctx.WriteString("用户消息: ")
-		ctx.WriteString(userMsg)
-		parts = append(parts, llms.TextContent{Text: ctx.String()})
+		sb.WriteString("用户消息: ")
+		sb.WriteString(userMsg)
+		userText = sb.String()
+	}
+
+	if len(imageFiles) > 0 {
+		multiContent := []openai.ChatMessagePart{
+			{Type: openai.ChatMessagePartTypeText, Text: userText},
+		}
+		for _, img := range imageFiles {
+			part, err := e.imagePartForFile(img)
+			if err != nil {
+				log.WithError(err).WithField("file", img.Filename).Warn("[Execute] prepare image failed, skipping")
+				continue
+			}
+			multiContent = append(multiContent, part)
+		}
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:         openai.ChatMessageRoleUser,
+			MultiContent: multiContent,
+		})
 	} else {
-		parts = append(parts, llms.TextContent{Text: userMsg})
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleUser,
+			Content: userText,
+		})
 	}
-
-	for _, img := range imageFiles {
-		part, err := e.imagePartForFile(img)
-		if err != nil {
-			log.WithError(err).WithField("file", img.Filename).Warn("[Execute] prepare image failed, skipping")
-			continue
-		}
-		parts = append(parts, part)
-	}
-
-	messages = append(messages, llms.MessageContent{
-		Role:  llms.ChatMessageTypeHuman,
-		Parts: parts,
-	})
 
 	return messages
 }
@@ -994,11 +1002,11 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, toolNames []string
 	return result
 }
 
-func extractContent(resp *llms.ContentResponse) string {
-	if resp == nil || len(resp.Choices) == 0 {
+func extractContent(resp openai.ChatCompletionResponse) string {
+	if len(resp.Choices) == 0 {
 		return ""
 	}
-	return resp.Choices[0].Content
+	return resp.Choices[0].Message.Content
 }
 
 func (e *Executor) linkFilesToMessage(ctx context.Context, files []*model.File, conversationID, messageID int64) {
@@ -1012,10 +1020,10 @@ func (e *Executor) linkFilesToMessage(ctx context.Context, files []*model.File, 
 	}
 }
 
-func (e *Executor) imagePartForFile(f *model.File) (llms.ContentPart, error) {
+func (e *Executor) imagePartForFile(f *model.File) (openai.ChatMessagePart, error) {
 	data, err := os.ReadFile(f.StoragePath)
 	if err != nil {
-		return nil, err
+		return openai.ChatMessagePart{}, err
 	}
 	mimeType := f.ContentType
 	if !strings.HasPrefix(mimeType, "image/") {
@@ -1027,7 +1035,10 @@ func (e *Executor) imagePartForFile(f *model.File) (llms.ContentPart, error) {
 	}
 	dataURL := "data:" + mimeType + ";base64," + base64.StdEncoding.EncodeToString(data)
 	log.WithFields(log.Fields{"file": f.Filename, "mime": mimeType, "size": len(data)}).Debug("[Execute] attaching image via base64")
-	return llms.ImageURLContent{URL: dataURL}, nil
+	return openai.ChatMessagePart{
+		Type:     openai.ChatMessagePartTypeImageURL,
+		ImageURL: &openai.ChatMessageImageURL{URL: dataURL},
+	}, nil
 }
 
 func truncateLog(s string, maxLen int) string {
@@ -1088,7 +1099,7 @@ func (t *subAgentTool) Call(ctx context.Context, input string) (string, error) {
 	return result.Content, nil
 }
 
-var _ tools.Tool = (*subAgentTool)(nil)
+var _ Tool = (*subAgentTool)(nil)
 
 func sanitizeToolName(name string) string {
 	var sb strings.Builder
@@ -1106,12 +1117,12 @@ func sanitizeToolName(name string) string {
 	return s
 }
 
-func (e *Executor) buildSubAgentLCTools(ctx context.Context, agentID int64, tracker *StepTracker) []tools.Tool {
+func (e *Executor) buildSubAgentTools(ctx context.Context, agentID int64, tracker *StepTracker) []Tool {
 	children, err := e.store.GetAgentChildren(ctx, agentID)
 	if err != nil || len(children) == 0 {
 		return nil
 	}
-	result := make([]tools.Tool, 0, len(children))
+	result := make([]Tool, 0, len(children))
 	for _, child := range children {
 		result = append(result, &subAgentTool{
 			agentUUID:   child.UUID,
@@ -1124,7 +1135,7 @@ func (e *Executor) buildSubAgentLCTools(ctx context.Context, agentID int64, trac
 	return result
 }
 
-func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Skill, subAgentTools []tools.Tool) {
+func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Skill, subAgentTools []Tool) {
 	toolNames := make([]string, 0, len(agentTools))
 	for _, t := range agentTools {
 		toolNames = append(toolNames, t.Name)
@@ -1152,18 +1163,21 @@ func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Sk
 	}
 }
 
-func logMessages(l *log.Entry, messages []llms.MessageContent) {
+func logMessages(l *log.Entry, messages []openai.ChatCompletionMessage) {
 	for i, msg := range messages {
-		var textParts []string
-		for _, part := range msg.Parts {
-			if tc, ok := part.(llms.TextContent); ok {
-				textParts = append(textParts, tc.Text)
+		content := msg.Content
+		if content == "" && len(msg.MultiContent) > 0 {
+			var parts []string
+			for _, p := range msg.MultiContent {
+				if p.Type == openai.ChatMessagePartTypeText {
+					parts = append(parts, p.Text)
+				}
 			}
+			content = strings.Join(parts, "")
 		}
-		content := strings.Join(textParts, "")
 		l.WithFields(log.Fields{
 			"idx":  i,
-			"role": string(msg.Role),
+			"role": msg.Role,
 			"len":  len(content),
 			"text": truncateLog(content, 300),
 		}).Debug("[LLM]    message")
