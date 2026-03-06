@@ -359,12 +359,14 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}
 
 	content := extractContent(resp)
-	l.WithFields(log.Fields{"duration": duration, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
+	tokensUsed := resp.Usage.TotalTokens
+	l.WithFields(log.Fields{"duration": duration, "len": len(content), "tokens": tokensUsed, "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
 
 	assistantMsg := &model.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        content,
+		TokensUsed:     tokensUsed,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
 		l.WithError(err).Error("[Execute] save assistant message failed")
@@ -372,7 +374,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	}
 
 	tracker.SetMessageID(assistantMsg.ID)
-	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, content, model.StepSuccess, "", duration, 0, &model.StepMetadata{
+	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, content, model.StepSuccess, "", duration, tokensUsed, &model.StepMetadata{
 		Provider:    prov.Name,
 		Model:       ag.ModelName,
 		Temperature: ag.Temperature,
@@ -382,6 +384,7 @@ func (e *Executor) executeSimple(ctx context.Context, ag *model.Agent, prov *mod
 	return &ExecuteResult{
 		ConversationID: conv.UUID,
 		Content:        content,
+		TokensUsed:     tokensUsed,
 		Steps:          tracker.Steps(),
 	}, nil
 }
@@ -428,6 +431,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 
 	maxIterations := ag.IterationLimit()
 	var finalContent string
+	var totalTokens int
 	calledTools := make(map[string]bool)
 	totalStart := time.Now()
 
@@ -448,6 +452,8 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			return nil, fmt.Errorf("generate content: %w", err)
 		}
 
+		totalTokens += resp.Usage.TotalTokens
+
 		if len(resp.Choices) == 0 {
 			l.Warn("[LLM] << empty response")
 			break
@@ -460,6 +466,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 			l.WithFields(log.Fields{
 				"round":    i + 1,
 				"duration": iterDur,
+				"tokens":   resp.Usage.TotalTokens,
 				"len":      len(finalContent),
 				"preview":  truncateLog(finalContent, 200),
 			}).Info("[LLM] << final answer")
@@ -528,6 +535,7 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        finalContent,
+		TokensUsed:     totalTokens,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
 		l.WithError(err).Error("[Execute] save assistant message failed")
@@ -535,16 +543,17 @@ func (e *Executor) executeWithTools(ctx context.Context, ag *model.Agent, prov *
 	}
 
 	tracker.SetMessageID(assistantMsg.ID)
-	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, finalContent, model.StepSuccess, "", totalDuration, 0, &model.StepMetadata{
+	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, userMsg, finalContent, model.StepSuccess, "", totalDuration, totalTokens, &model.StepMetadata{
 		Provider:    prov.Name,
 		Model:       ag.ModelName,
 		Temperature: ag.Temperature,
 	})
 
-	l.WithFields(log.Fields{"steps": len(tracker.Steps()), "duration": totalDuration}).Info("[Execute] << done")
+	l.WithFields(log.Fields{"steps": len(tracker.Steps()), "duration": totalDuration, "total_tokens": totalTokens}).Info("[Execute] << done")
 	return &ExecuteResult{
 		ConversationID: conv.UUID,
 		Content:        finalContent,
+		TokensUsed:     totalTokens,
 		Steps:          tracker.Steps(),
 	}, nil
 }
@@ -687,6 +696,9 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 		Temperature: float32(ag.Temperature),
 		MaxTokens:   ag.MaxTokens,
 		Stream:      true,
+		StreamOptions: &openai.StreamOptions{
+			IncludeUsage: true,
+		},
 	}
 
 	userMsgID, err := e.memory.SaveMessage(ctx, conv.ID, "user", req.Message, 0)
@@ -713,6 +725,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	var fullContent strings.Builder
 	var chunkCount int
+	var streamTokens int
 
 	for {
 		response, recvErr := stream.Recv()
@@ -728,6 +741,9 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 				Temperature: ag.Temperature,
 			})
 			return fmt.Errorf("stream content: %w", recvErr)
+		}
+		if response.Usage != nil {
+			streamTokens = response.Usage.TotalTokens
 		}
 		if len(response.Choices) == 0 {
 			continue
@@ -748,12 +764,13 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 
 	duration := time.Since(start)
 	content := fullContent.String()
-	l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
+	l.WithFields(log.Fields{"duration": duration, "chunks": chunkCount, "tokens": streamTokens, "len": len(content), "preview": truncateLog(content, 200)}).Info("[LLM] << ok")
 
 	assistantMsg := &model.Message{
 		ConversationID: conv.ID,
 		Role:           "assistant",
 		Content:        content,
+		TokensUsed:     streamTokens,
 	}
 	if err := e.store.CreateMessage(ctx, assistantMsg); err != nil {
 		l.WithError(err).Error("[Execute] save assistant message failed")
@@ -761,7 +778,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 
 	tracker.SetMessageID(assistantMsg.ID)
-	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, content, model.StepSuccess, "", duration, 0, &model.StepMetadata{
+	tracker.RecordStep(ctx, model.StepLLMCall, ag.ModelName, req.Message, content, model.StepSuccess, "", duration, streamTokens, &model.StepMetadata{
 		Provider:    prov.Name,
 		Model:       ag.ModelName,
 		Temperature: ag.Temperature,
