@@ -241,7 +241,6 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 	}
 
 	var toolMap map[string]Tool
-	var allToolNames []string
 	var toolDefs []openai.Tool
 	calledTools := make(map[string]bool)
 
@@ -249,10 +248,8 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
-		allToolNames = make([]string, 0, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
-			allToolNames = append(allToolNames, t.Name())
 		}
 		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools)
 		ec.l.Info("[Execute]    mode = tool-augmented")
@@ -260,7 +257,7 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 		ec.l.Info("[Execute]    mode = simple")
 	}
 
-	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, allToolNames, ec.files)
+	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.subAgentTools, ec.toolSkillMap, ec.files)
 	logMessages(ec.l, messages)
 
 	req := openai.ChatCompletionRequest{
@@ -388,7 +385,6 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 	}
 
 	var toolMap map[string]Tool
-	var allToolNames []string
 	var toolDefs []openai.Tool
 	calledTools := make(map[string]bool)
 
@@ -396,10 +392,8 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
-		allToolNames = make([]string, 0, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
-			allToolNames = append(allToolNames, t.Name())
 		}
 		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools)
 		ec.l.Info("[Execute]    mode = stream + tool-augmented")
@@ -407,7 +401,7 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 		ec.l.Info("[Execute]    mode = stream")
 	}
 
-	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, allToolNames, ec.files)
+	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.subAgentTools, ec.toolSkillMap, ec.files)
 	logMessages(ec.l, messages)
 
 	var totalTokens int

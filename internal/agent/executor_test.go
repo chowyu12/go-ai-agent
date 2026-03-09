@@ -585,7 +585,7 @@ func toolCallResp(toolName, args string) openai.ChatCompletionResponse {
 func TestBuildSystemPrompt(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		ag := &model.Agent{}
-		result := buildSystemPrompt(ag, nil, nil)
+		result := buildSystemPrompt(ag, nil, nil, nil, nil)
 		if result != "" {
 			t.Errorf("expected empty, got %q", result)
 		}
@@ -593,7 +593,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 	t.Run("with_prompt", func(t *testing.T) {
 		ag := &model.Agent{SystemPrompt: "你是助手"}
-		result := buildSystemPrompt(ag, nil, nil)
+		result := buildSystemPrompt(ag, nil, nil, nil, nil)
 		if result != "你是助手" {
 			t.Errorf("expected '你是助手', got %q", result)
 		}
@@ -602,28 +602,71 @@ func TestBuildSystemPrompt(t *testing.T) {
 	t.Run("with_skills", func(t *testing.T) {
 		ag := &model.Agent{SystemPrompt: "base"}
 		skills := []model.Skill{{Name: "翻译", Instruction: "翻译指令"}}
-		result := buildSystemPrompt(ag, skills, nil)
-		if !strings.Contains(result, "Skill: 翻译") || !strings.Contains(result, "翻译指令") {
+		result := buildSystemPrompt(ag, skills, nil, nil, nil)
+		if !strings.Contains(result, "翻译") || !strings.Contains(result, "翻译指令") {
 			t.Errorf("skill not included: %q", result)
 		}
 	})
 
 	t.Run("with_tools", func(t *testing.T) {
 		ag := &model.Agent{}
-		result := buildSystemPrompt(ag, nil, []string{"current_time", "calculator"})
+		tools := []model.Tool{
+			{Name: "current_time", Description: "获取当前时间", Enabled: true},
+			{Name: "calculator", Description: "数学计算", Enabled: true},
+		}
+		result := buildSystemPrompt(ag, nil, tools, nil, nil)
 		if !strings.Contains(result, "current_time") || !strings.Contains(result, "calculator") {
 			t.Errorf("tool names not included: %q", result)
 		}
 		if !strings.Contains(result, "工具使用策略") {
 			t.Errorf("missing tool strategy section: %q", result)
 		}
+		if !strings.Contains(result, "获取当前时间") {
+			t.Errorf("missing tool description: %q", result)
+		}
+	})
+
+	t.Run("with_skill_tool_mapping", func(t *testing.T) {
+		ag := &model.Agent{SystemPrompt: "base"}
+		skills := []model.Skill{{Name: "翻译", Instruction: "翻译指令"}}
+		tools := []model.Tool{
+			{Name: "translate_api", Description: "文本翻译", Enabled: true},
+		}
+		toolSkillMap := map[string]string{"translate_api": "翻译"}
+		result := buildSystemPrompt(ag, skills, tools, nil, toolSkillMap)
+		if !strings.Contains(result, "关联工具: translate_api") {
+			t.Errorf("missing skill-tool association: %q", result)
+		}
+		if !strings.Contains(result, "技能: 翻译") {
+			t.Errorf("missing tool skill annotation: %q", result)
+		}
+		if !strings.Contains(result, "技能路由") {
+			t.Errorf("missing skill routing strategy: %q", result)
+		}
+	})
+
+	t.Run("disabled_tools_excluded", func(t *testing.T) {
+		ag := &model.Agent{}
+		tools := []model.Tool{
+			{Name: "enabled_tool", Description: "可用", Enabled: true},
+			{Name: "disabled_tool", Description: "禁用", Enabled: false},
+		}
+		result := buildSystemPrompt(ag, nil, tools, nil, nil)
+		if !strings.Contains(result, "enabled_tool") {
+			t.Errorf("enabled tool missing: %q", result)
+		}
+		if strings.Contains(result, "disabled_tool") {
+			t.Errorf("disabled tool should be excluded: %q", result)
+		}
 	})
 
 	t.Run("full", func(t *testing.T) {
 		ag := &model.Agent{SystemPrompt: "base prompt"}
 		skills := []model.Skill{{Name: "代码审查", Instruction: "审查代码"}}
-		toolNames := []string{"test_tool"}
-		result := buildSystemPrompt(ag, skills, toolNames)
+		tools := []model.Tool{
+			{Name: "test_tool", Description: "测试工具", Enabled: true},
+		}
+		result := buildSystemPrompt(ag, skills, tools, nil, nil)
 		if !strings.Contains(result, "base prompt") {
 			t.Error("missing base prompt")
 		}
@@ -1288,9 +1331,9 @@ func TestBuildMessages(t *testing.T) {
 		{Role: openai.ChatMessageRoleUser, Content: "prev question"},
 		{Role: openai.ChatMessageRoleAssistant, Content: "prev answer"},
 	}
-	toolNames := []string{"tool1"}
+	tools := []model.Tool{{Name: "tool1", Description: "test tool", Enabled: true}}
 
-	msgs := buildMessages(ag, skills, history, "new question", toolNames, nil)
+	msgs := buildMessages(ag, skills, history, "new question", tools, nil, nil, nil)
 
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages (system + 2 history + user), got %d", len(msgs))
@@ -1314,7 +1357,7 @@ func TestBuildMessages_WithFiles(t *testing.T) {
 		{Filename: "readme.txt", FileType: model.FileTypeText, TextContent: "This is a readme file content."},
 	}
 
-	msgs := buildMessages(ag, nil, nil, "summarize the file", nil, files)
+	msgs := buildMessages(ag, nil, nil, "summarize the file", nil, nil, nil, files)
 
 	lastMsg := msgs[len(msgs)-1]
 	lastText := lastMsg.Content
