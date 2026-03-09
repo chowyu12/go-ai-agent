@@ -59,6 +59,10 @@ func (s *MySQLStore) ListConversations(ctx context.Context, agentID int64, userI
 		where += ` AND user_id = ?`
 		args = append(args, userID)
 	}
+	if q.Keyword != "" {
+		where += ` AND title LIKE ?`
+		args = append(args, "%"+q.Keyword+"%")
+	}
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(1) FROM conversations`+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}

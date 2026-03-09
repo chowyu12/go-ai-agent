@@ -31,10 +31,16 @@ func (h *ChatHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/conversations/{id}/steps", h.ListConversationSteps)
 }
 
-func fillAgentFromToken(r *http.Request, req *model.ChatRequest) {
+func fillIdentity(r *http.Request, req *model.ChatRequest) {
 	id := auth.IdentityFromContext(r.Context())
-	if id != nil && id.IsAgentToken() && req.AgentID == "" {
+	if id == nil {
+		return
+	}
+	if id.IsAgentToken() && req.AgentID == "" {
 		req.AgentID = id.AgentUUID
+	}
+	if req.UserID == "" && id.Username != "" {
+		req.UserID = id.Username
 	}
 }
 
@@ -44,7 +50,7 @@ func (h *ChatHandler) Complete(w http.ResponseWriter, r *http.Request) {
 		httputil.BadRequest(w, "invalid request body")
 		return
 	}
-	fillAgentFromToken(r, &req)
+	fillIdentity(r, &req)
 	if req.AgentID == "" {
 		httputil.BadRequest(w, "agent_id is required")
 		return
@@ -52,9 +58,6 @@ func (h *ChatHandler) Complete(w http.ResponseWriter, r *http.Request) {
 	if req.Message == "" {
 		httputil.BadRequest(w, "message is required")
 		return
-	}
-	if req.UserID == "" {
-		req.UserID = r.Header.Get("X-User-ID")
 	}
 	if req.UserID == "" {
 		req.UserID = "anonymous"
@@ -79,7 +82,7 @@ func (h *ChatHandler) Stream(w http.ResponseWriter, r *http.Request) {
 		httputil.BadRequest(w, "invalid request body")
 		return
 	}
-	fillAgentFromToken(r, &req)
+	fillIdentity(r, &req)
 	if req.AgentID == "" {
 		httputil.BadRequest(w, "agent_id is required")
 		return
@@ -87,9 +90,6 @@ func (h *ChatHandler) Stream(w http.ResponseWriter, r *http.Request) {
 	if req.Message == "" {
 		httputil.BadRequest(w, "message is required")
 		return
-	}
-	if req.UserID == "" {
-		req.UserID = r.Header.Get("X-User-ID")
 	}
 	if req.UserID == "" {
 		req.UserID = "anonymous"
@@ -115,6 +115,11 @@ func (h *ChatHandler) ListConversations(w http.ResponseWriter, r *http.Request) 
 	q := parseListQuery(r)
 	agentID, _ := strconv.ParseInt(r.URL.Query().Get("agent_id"), 10, 64)
 	userID := r.URL.Query().Get("user_id")
+	if userID == "" {
+		if id := auth.IdentityFromContext(r.Context()); id != nil && id.Username != "" {
+			userID = id.Username
+		}
+	}
 	list, total, err := h.store.ListConversations(r.Context(), agentID, userID, q)
 	if err != nil {
 		httputil.InternalError(w, err.Error())

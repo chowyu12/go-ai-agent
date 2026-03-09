@@ -304,7 +304,10 @@
 import { ref, computed, onMounted, nextTick, reactive } from 'vue'
 import { agentApi, type Agent } from '../../api/agent'
 import { chatApi, streamChat, fileApi, type StreamChunk, type ExecutionStep, type FileInfo, type ChatFile, type Conversation, type Message } from '../../api/chat'
+import { useAuthStore } from '../../stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
+
+const authStore = useAuthStore()
 
 interface UploadedFile {
   uuid: string
@@ -367,14 +370,25 @@ async function loadConversations() {
   const ag = currentAgent.value
   if (!ag) { conversations.value = []; return }
   try {
-    const res: any = await chatApi.conversations({ page: 1, page_size: 50, agent_id: ag.id })
+    const res: any = await chatApi.conversations({ page: 1, page_size: 50, agent_id: ag.id, user_id: authStore.user?.username })
     conversations.value = res.data?.list || []
   } catch {
     conversations.value = []
   }
+  syncActiveConvId()
+}
+
+function syncActiveConvId() {
+  if (!conversationId.value) {
+    activeConvId.value = 0
+    return
+  }
+  const match = conversations.value.find(c => c.uuid === conversationId.value)
+  activeConvId.value = match ? match.id : 0
 }
 
 async function loadConversation(conv: Conversation) {
+  if (activeConvId.value === conv.id) return
   activeConvId.value = conv.id
   conversationId.value = conv.uuid
   loadingHistory.value = true
@@ -527,7 +541,7 @@ function sendMessage() {
   scrollToBottom()
 
   streamChat(
-    { agent_id: selectedAgentUUID.value, conversation_id: conversationId.value, message: text, files: chatFiles.length > 0 ? chatFiles : undefined },
+    { agent_id: selectedAgentUUID.value, conversation_id: conversationId.value, message: text, user_id: authStore.user?.username, files: chatFiles.length > 0 ? chatFiles : undefined },
     (chunk: StreamChunk) => {
       if (chunk.conversation_id) conversationId.value = chunk.conversation_id
       if (chunk.delta) { streamingContent.value += chunk.delta; scrollToBottom() }

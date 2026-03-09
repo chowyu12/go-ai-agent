@@ -2,6 +2,10 @@ package agent
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
 
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
@@ -23,7 +27,13 @@ func (m *MemoryManager) GetOrCreateConversation(ctx context.Context, conversatio
 	if conversationUUID != "" {
 		conv, err := m.store.GetConversationByUUID(ctx, conversationUUID)
 		if err == nil {
+			if conv.UserID != "" && conv.UserID != userID {
+				return nil, fmt.Errorf("conversation %s does not belong to user %s", conversationUUID, userID)
+			}
 			return conv, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("get conversation: %w", err)
 		}
 	}
 	conv := &model.Conversation{
@@ -54,10 +64,15 @@ func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, l
 		case "tool":
 			role = openai.ChatMessageRoleTool
 		}
-		result = append(result, openai.ChatCompletionMessage{
-			Role:    role,
-			Content: msg.Content,
-		})
+		cm := openai.ChatCompletionMessage{
+			Role:       role,
+			Content:    msg.Content,
+			ToolCallID: msg.ToolCallID,
+		}
+		if len(msg.ToolCalls) > 0 {
+			_ = json.Unmarshal(msg.ToolCalls, &cm.ToolCalls)
+		}
+		result = append(result, cm)
 	}
 	return result, nil
 }
@@ -105,5 +120,7 @@ func (m *MemoryManager) AutoSetTitle(ctx context.Context, conversationID int64, 
 	if len(rs) > 50 {
 		title = string(rs[:50]) + "..."
 	}
-	m.store.UpdateConversationTitle(ctx, conversationID, title)
+	if err := m.store.UpdateConversationTitle(ctx, conversationID, title); err != nil {
+		log.WithFields(log.Fields{"conv_id": conversationID, "title": title}).WithError(err).Warn("[Memory] auto set title failed")
+	}
 }

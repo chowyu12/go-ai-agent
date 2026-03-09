@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -36,6 +38,8 @@ type mockStore struct {
 	agentSkillIDs map[int64][]int64
 	agentChildIDs map[int64][]int64
 	skillToolIDs  map[int64][]int64
+
+	getConvByUUIDErr error
 }
 
 func newMockStore() *mockStore {
@@ -268,18 +272,55 @@ func (s *mockStore) GetConversation(_ context.Context, id int64) (*model.Convers
 func (s *mockStore) GetConversationByUUID(_ context.Context, uuid string) (*model.Conversation, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.getConvByUUIDErr != nil {
+		return nil, s.getConvByUUIDErr
+	}
 	if c, ok := s.convByUUID[uuid]; ok {
 		return c, nil
 	}
-	return nil, fmt.Errorf("conversation %s not found", uuid)
+	return nil, sql.ErrNoRows
 }
-func (s *mockStore) ListConversations(_ context.Context, _ int64, _ string, _ model.ListQuery) ([]*model.Conversation, int64, error) {
-	return nil, 0, nil
+func (s *mockStore) ListConversations(_ context.Context, agentID int64, userID string, q model.ListQuery) ([]*model.Conversation, int64, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var list []*model.Conversation
+	for _, c := range s.conversations {
+		if agentID > 0 && c.AgentID != agentID {
+			continue
+		}
+		if userID != "" && c.UserID != userID {
+			continue
+		}
+		if q.Keyword != "" && !strings.Contains(c.Title, q.Keyword) {
+			continue
+		}
+		list = append(list, c)
+	}
+	return list, int64(len(list)), nil
 }
-func (s *mockStore) UpdateConversationTitle(_ context.Context, _ int64, _ string) error {
+func (s *mockStore) UpdateConversationTitle(_ context.Context, id int64, title string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.conversations[id]
+	if !ok {
+		return sql.ErrNoRows
+	}
+	c.Title = title
 	return nil
 }
-func (s *mockStore) DeleteConversation(_ context.Context, _ int64) error { return nil }
+func (s *mockStore) DeleteConversation(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.conversations[id]
+	if !ok {
+		return nil
+	}
+	delete(s.conversations, id)
+	delete(s.convByUUID, c.UUID)
+	delete(s.messages, id)
+	delete(s.execSteps, id)
+	return nil
+}
 func (s *mockStore) CreateMessage(_ context.Context, m *model.Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

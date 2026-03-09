@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -895,5 +896,271 @@ func TestMemoryManager_SaveAndLoadHistory(t *testing.T) {
 	}
 	if history[1].Role != openai.ChatMessageRoleAssistant {
 		t.Errorf("second message should be assistant, got %s", history[1].Role)
+	}
+}
+
+func TestLoadHistory_WithToolCalls(t *testing.T) {
+	ms := newMockStore()
+	mm := NewMemoryManager(ms, ms)
+	ctx := t.Context()
+
+	conv, _ := mm.GetOrCreateConversation(ctx, "", 1, "user1")
+
+	ms.CreateMessage(ctx, &model.Message{
+		ConversationID: conv.ID,
+		Role:           "user",
+		Content:        "今天天气怎么样",
+	})
+
+	toolCalls := []openai.ToolCall{{
+		ID:       "call_abc123",
+		Type:     openai.ToolTypeFunction,
+		Function: openai.FunctionCall{Name: "get_weather", Arguments: `{"city":"北京"}`},
+	}}
+	toolCallsJSON, _ := json.Marshal(toolCalls)
+	ms.CreateMessage(ctx, &model.Message{
+		ConversationID: conv.ID,
+		Role:           "assistant",
+		Content:        "",
+		ToolCalls:      toolCallsJSON,
+	})
+
+	ms.CreateMessage(ctx, &model.Message{
+		ConversationID: conv.ID,
+		Role:           "tool",
+		Content:        `{"temperature": 25, "weather": "晴"}`,
+		ToolCallID:     "call_abc123",
+	})
+
+	ms.CreateMessage(ctx, &model.Message{
+		ConversationID: conv.ID,
+		Role:           "assistant",
+		Content:        "北京今天25度，天气晴朗",
+	})
+
+	history, err := mm.LoadHistory(ctx, conv.ID, 50)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(history) != 4 {
+		t.Fatalf("expected 4 history messages, got %d", len(history))
+	}
+
+	assistantWithToolCalls := history[1]
+	if assistantWithToolCalls.Role != openai.ChatMessageRoleAssistant {
+		t.Errorf("expected assistant role, got %s", assistantWithToolCalls.Role)
+	}
+	if len(assistantWithToolCalls.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(assistantWithToolCalls.ToolCalls))
+	}
+	if assistantWithToolCalls.ToolCalls[0].ID != "call_abc123" {
+		t.Errorf("expected tool call ID 'call_abc123', got %q", assistantWithToolCalls.ToolCalls[0].ID)
+	}
+	if assistantWithToolCalls.ToolCalls[0].Function.Name != "get_weather" {
+		t.Errorf("expected function name 'get_weather', got %q", assistantWithToolCalls.ToolCalls[0].Function.Name)
+	}
+
+	toolMsg := history[2]
+	if toolMsg.Role != openai.ChatMessageRoleTool {
+		t.Errorf("expected tool role, got %s", toolMsg.Role)
+	}
+	if toolMsg.ToolCallID != "call_abc123" {
+		t.Errorf("expected tool call ID 'call_abc123', got %q", toolMsg.ToolCallID)
+	}
+
+	finalAssistant := history[3]
+	if finalAssistant.ToolCallID != "" {
+		t.Errorf("final assistant should have empty ToolCallID, got %q", finalAssistant.ToolCallID)
+	}
+	if len(finalAssistant.ToolCalls) != 0 {
+		t.Errorf("final assistant should have no ToolCalls, got %d", len(finalAssistant.ToolCalls))
+	}
+}
+
+func TestGetOrCreateConversation_DBError(t *testing.T) {
+	ms := newMockStore()
+	mm := NewMemoryManager(ms, ms)
+	ctx := t.Context()
+
+	ms.getConvByUUIDErr = errors.New("connection refused")
+
+	_, err := mm.GetOrCreateConversation(ctx, "some-uuid", 1, "user1")
+	if err == nil {
+		t.Fatal("expected error when DB fails, got nil")
+	}
+	if !strings.Contains(err.Error(), "connection refused") {
+		t.Errorf("expected 'connection refused' in error, got: %v", err)
+	}
+
+	ms.getConvByUUIDErr = nil
+	conv, err := mm.GetOrCreateConversation(ctx, "", 1, "user1")
+	if err != nil {
+		t.Fatalf("expected success with empty UUID: %v", err)
+	}
+	if conv.ID == 0 {
+		t.Error("expected a valid conversation")
+	}
+}
+
+func TestGetOrCreateConversation_WrongUser(t *testing.T) {
+	ms := newMockStore()
+	mm := NewMemoryManager(ms, ms)
+	ctx := t.Context()
+
+	conv, err := mm.GetOrCreateConversation(ctx, "", 1, "owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, err = mm.GetOrCreateConversation(ctx, conv.UUID, 1, "attacker")
+	if err == nil {
+		t.Fatal("expected error for wrong user, got nil")
+	}
+	if !strings.Contains(err.Error(), "does not belong to user") {
+		t.Errorf("expected ownership error, got: %v", err)
+	}
+
+	got, err := mm.GetOrCreateConversation(ctx, conv.UUID, 1, "owner")
+	if err != nil {
+		t.Fatalf("owner should succeed: %v", err)
+	}
+	if got.ID != conv.ID {
+		t.Errorf("expected same conv %d, got %d", conv.ID, got.ID)
+	}
+}
+
+func TestExecute_MultiRoundToolCalls(t *testing.T) {
+	s := newMockStore()
+	agent, _ := seedAgent(t, s)
+
+	registry := NewToolRegistry()
+	registry.RegisterBuiltin("weather", func(_ context.Context, args string) (string, error) {
+		return `{"temp":25,"weather":"晴"}`, nil
+	})
+	registry.RegisterBuiltin("translate", func(_ context.Context, args string) (string, error) {
+		return "sunny, 25 degrees", nil
+	})
+	seedToolForAgent(t, s, agent.ID, "weather", "get weather")
+	seedToolForAgent(t, s, agent.ID, "translate", "translate text")
+
+	mockLLM := &mockLLMProvider{
+		responses: []openai.ChatCompletionResponse{
+			toolCallResp("weather", `{"city":"北京"}`),
+			textResp("北京今天25度，天气晴朗"),
+			toolCallResp("translate", `{"text":"晴朗"}`),
+			textResp("翻译结果：sunny, 25 degrees"),
+		},
+	}
+	exec := newTestExecutor(s, registry, mockLLM)
+	ctx := t.Context()
+
+	r1, err := exec.Execute(ctx, model.ChatRequest{
+		AgentID: agent.UUID, UserID: "u1", Message: "北京天气",
+	})
+	if err != nil {
+		t.Fatalf("round 1: %v", err)
+	}
+	if !strings.Contains(r1.Content, "25度") {
+		t.Errorf("round 1 content should mention 25度, got %q", r1.Content)
+	}
+
+	r2, err := exec.Execute(ctx, model.ChatRequest{
+		AgentID:        agent.UUID,
+		UserID:         "u1",
+		Message:        "翻译一下天气",
+		ConversationID: r1.ConversationID,
+	})
+	if err != nil {
+		t.Fatalf("round 2: %v", err)
+	}
+	if !strings.Contains(r2.Content, "sunny") {
+		t.Errorf("round 2 content should contain 'sunny', got %q", r2.Content)
+	}
+	if r2.ConversationID != r1.ConversationID {
+		t.Errorf("conversation should be reused: %q vs %q", r1.ConversationID, r2.ConversationID)
+	}
+
+	r2Req := mockLLM.calls[3]
+	hasHistory := false
+	for _, msg := range r2Req.Messages {
+		if msg.Role == openai.ChatMessageRoleAssistant && strings.Contains(msg.Content, "25度") {
+			hasHistory = true
+		}
+	}
+	if !hasHistory {
+		t.Error("round 2 LLM request should include round 1 history")
+	}
+}
+
+func TestAutoSetTitle(t *testing.T) {
+	ms := newMockStore()
+	mm := NewMemoryManager(ms, ms)
+	ctx := t.Context()
+
+	conv, _ := mm.GetOrCreateConversation(ctx, "", 1, "user1")
+	if conv.Title != "New Conversation" {
+		t.Fatalf("expected default title, got %q", conv.Title)
+	}
+
+	mm.AutoSetTitle(ctx, conv.ID, "这是一个很长的标题内容，当标题文字超过五十个字符的时候应该被自动截断处理而不是把完整内容展示给用户看到的最终效果")
+
+	got, _ := ms.GetConversation(ctx, conv.ID)
+	rs := []rune(got.Title)
+	if len(rs) > 54 {
+		t.Errorf("title should be truncated, got %d runes: %q", len(rs), got.Title)
+	}
+	if !strings.HasSuffix(got.Title, "...") {
+		t.Errorf("truncated title should end with '...', got %q", got.Title)
+	}
+}
+
+func TestMockStore_ListConversations(t *testing.T) {
+	ms := newMockStore()
+	ctx := t.Context()
+
+	ms.CreateConversation(ctx, &model.Conversation{AgentID: 1, UserID: "u1", Title: "聊天一"})
+	ms.CreateConversation(ctx, &model.Conversation{AgentID: 1, UserID: "u1", Title: "聊天二"})
+	ms.CreateConversation(ctx, &model.Conversation{AgentID: 2, UserID: "u2", Title: "其他对话"})
+
+	list, total, err := ms.ListConversations(ctx, 1, "u1", model.ListQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 {
+		t.Errorf("expected 2 conversations for agent=1/user=u1, got %d", total)
+	}
+	if len(list) != 2 {
+		t.Errorf("expected 2 items, got %d", len(list))
+	}
+
+	list, total, _ = ms.ListConversations(ctx, 0, "", model.ListQuery{Keyword: "其他"})
+	if total != 1 {
+		t.Errorf("expected 1 conversation matching keyword '其他', got %d", total)
+	}
+	if len(list) != 1 || list[0].Title != "其他对话" {
+		t.Errorf("unexpected result: %v", list)
+	}
+}
+
+func TestMockStore_DeleteConversation(t *testing.T) {
+	ms := newMockStore()
+	ctx := t.Context()
+
+	conv := &model.Conversation{AgentID: 1, UserID: "u1", Title: "to be deleted"}
+	ms.CreateConversation(ctx, conv)
+	ms.CreateMessage(ctx, &model.Message{ConversationID: conv.ID, Role: "user", Content: "hello"})
+
+	if err := ms.DeleteConversation(ctx, conv.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := ms.GetConversation(ctx, conv.ID)
+	if err == nil {
+		t.Error("conversation should be deleted")
+	}
+
+	msgs, _ := ms.ListMessages(ctx, conv.ID, 50)
+	if len(msgs) != 0 {
+		t.Errorf("messages should be cascaded deleted, got %d", len(msgs))
 	}
 }
