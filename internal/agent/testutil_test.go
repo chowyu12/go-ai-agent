@@ -250,6 +250,29 @@ func (s *mockStore) GetSkillTools(_ context.Context, skillID int64) ([]model.Too
 	return result, nil
 }
 
+func (s *mockStore) CreateMCPServer(_ context.Context, m *model.MCPServer) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m.ID = s.nextID()
+	return nil
+}
+func (s *mockStore) GetMCPServer(_ context.Context, _ int64) (*model.MCPServer, error) {
+	return nil, fmt.Errorf("not found")
+}
+func (s *mockStore) ListMCPServers(_ context.Context, _ model.ListQuery) ([]*model.MCPServer, int64, error) {
+	return nil, 0, nil
+}
+func (s *mockStore) UpdateMCPServer(_ context.Context, _ int64, _ model.UpdateMCPServerReq) error {
+	return nil
+}
+func (s *mockStore) DeleteMCPServer(_ context.Context, _ int64) error { return nil }
+func (s *mockStore) SetAgentMCPServers(_ context.Context, _ int64, _ []int64) error {
+	return nil
+}
+func (s *mockStore) GetAgentMCPServers(_ context.Context, _ int64) ([]model.MCPServer, error) {
+	return nil, nil
+}
+
 func (s *mockStore) CreateConversation(_ context.Context, c *model.Conversation) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

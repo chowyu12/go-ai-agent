@@ -65,6 +65,9 @@ func (h *AgentHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if len(req.ChildIDs) > 0 {
 		h.store.SetAgentChildren(ctx, a.ID, req.ChildIDs)
 	}
+	if len(req.MCPServerIDs) > 0 {
+		h.store.SetAgentMCPServers(ctx, a.ID, req.MCPServerIDs)
+	}
 	httputil.OK(w, a)
 }
 
@@ -83,6 +86,7 @@ func (h *AgentHandler) Get(w http.ResponseWriter, r *http.Request) {
 	a.Tools, _ = h.store.GetAgentTools(ctx, a.ID)
 	a.Skills, _ = h.store.GetAgentSkills(ctx, a.ID)
 	a.Children, _ = h.store.GetAgentChildren(ctx, a.ID)
+	a.MCPServers, _ = h.store.GetAgentMCPServers(ctx, a.ID)
 	httputil.OK(w, a)
 }
 
@@ -120,6 +124,9 @@ func (h *AgentHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.ChildIDs != nil {
 		h.store.SetAgentChildren(ctx, id, req.ChildIDs)
+	}
+	if req.MCPServerIDs != nil {
+		h.store.SetAgentMCPServers(ctx, id, req.MCPServerIDs)
 	}
 	httputil.OK(w, nil)
 }

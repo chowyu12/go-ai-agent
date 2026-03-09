@@ -128,6 +128,7 @@ var _ Tool = (*trackedTool)(nil)
 type dynamicTool struct {
 	toolName string
 	toolDesc string
+	params   any
 	handler  func(ctx context.Context, input string) (string, error)
 }
 

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -144,7 +145,11 @@ func (bm *browserManager) ensureStarted() error {
 		return nil
 	}
 
-	tmpDir, err := os.MkdirTemp("", "browser-agent-*")
+	tmpBase := workspace.Tmp()
+	if tmpBase == "" {
+		tmpBase = os.TempDir()
+	}
+	tmpDir, err := os.MkdirTemp(tmpBase, "browser-agent-*")
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}

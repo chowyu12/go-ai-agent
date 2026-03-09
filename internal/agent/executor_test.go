@@ -112,7 +112,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 func TestBuildLLMToolDefs(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		defs := buildLLMToolDefs(nil, nil)
+		defs := buildLLMToolDefs(nil, nil, nil)
 		if len(defs) != 0 {
 			t.Errorf("expected 0, got %d", len(defs))
 		}
@@ -123,7 +123,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 			{Name: "a", Description: "A", Enabled: false},
 			{Name: "b", Description: "B", Enabled: true},
 		}
-		defs := buildLLMToolDefs(modelTools, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if len(defs) != 1 {
 			t.Fatalf("expected 1, got %d", len(defs))
 		}
@@ -145,7 +145,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 		modelTools := []model.Tool{
 			{Name: "weather", Description: "orig", Enabled: true, FunctionDef: funcDef},
 		}
-		defs := buildLLMToolDefs(modelTools, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if len(defs) != 1 {
 			t.Fatalf("expected 1, got %d", len(defs))
 		}
@@ -166,7 +166,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 			toolName: "delegate_child",
 			toolDesc: "delegate to child",
 		}}
-		defs := buildLLMToolDefs(nil, subTools)
+		defs := buildLLMToolDefs(nil, subTools, nil)
 		if len(defs) != 1 {
 			t.Fatalf("expected 1, got %d", len(defs))
 		}
@@ -179,7 +179,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 		modelTools := []model.Tool{
 			{Name: "simple", Description: "simple tool", Enabled: true},
 		}
-		defs := buildLLMToolDefs(modelTools, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if defs[0].Function.Parameters == nil {
 			t.Error("expected default parameters, got nil")
 		}

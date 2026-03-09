@@ -261,6 +261,36 @@
             </el-option>
           </el-select>
         </el-form-item>
+        <el-form-item label="MCP 服务">
+          <el-select
+            v-model="form.mcp_server_ids"
+            multiple
+            filterable
+            collapse-tags
+            collapse-tags-tooltip
+            :max-collapse-tags="3"
+            placeholder="搜索并选择 MCP 服务"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="m in allMcpServers"
+              :key="m.id"
+              :label="m.name"
+              :value="m.id"
+            >
+              <div
+                style="
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                "
+              >
+                <span>{{ m.name }}</span>
+                <span class="option-desc">{{ m.transport }} · {{ m.endpoint }}</span>
+              </div>
+            </el-option>
+          </el-select>
+        </el-form-item>
         <el-form-item label="子 Agent">
           <el-select
             v-model="form.child_ids"
@@ -317,6 +347,7 @@ import { agentApi, type Agent } from "../../api/agent";
 import { providerApi, type Provider } from "../../api/provider";
 import { toolApi, type Tool } from "../../api/tool";
 import { skillApi, type Skill } from "../../api/skill";
+import { mcpApi, type McpServer } from "../../api/mcp";
 
 const route = useRoute();
 const router = useRouter();
@@ -345,12 +376,14 @@ const form = ref<any>({
   tool_ids: [],
   skill_ids: [],
   child_ids: [],
+  mcp_server_ids: [],
 });
 
 const providers = ref<Provider[]>([]);
 const allTools = ref<Tool[]>([]);
 const allSkills = ref<Skill[]>([]);
 const allAgents = ref<Agent[]>([]);
+const allMcpServers = ref<McpServer[]>([]);
 
 const providerModels = ref<string[]>([]);
 const remoteModels = ref<string[]>([]);
@@ -372,16 +405,18 @@ function goBack() {
 }
 
 async function loadOptions() {
-  const [p, t, s, a] = await Promise.all([
+  const [p, t, s, a, m] = await Promise.all([
     providerApi.list({ page: 1, page_size: 100 }),
     toolApi.list({ page: 1, page_size: 100 }),
     skillApi.list({ page: 1, page_size: 100 }),
     agentApi.list({ page: 1, page_size: 100 }),
+    mcpApi.list({ page: 1, page_size: 100 }),
   ]);
   providers.value = (p as any).data?.list || [];
   allTools.value = (t as any).data?.list || [];
   allSkills.value = (s as any).data?.list || [];
   allAgents.value = (a as any).data?.list || [];
+  allMcpServers.value = (m as any).data?.list || [];
 }
 
 async function loadProviderModels(providerId: number) {
@@ -438,6 +473,7 @@ async function loadAgent() {
       tool_ids: detail.tools?.map((t: any) => t.id) || [],
       skill_ids: detail.skills?.map((s: any) => s.id) || [],
       child_ids: detail.children?.map((a: any) => a.id) || [],
+      mcp_server_ids: detail.mcp_servers?.map((m: any) => m.id) || [],
     };
     if (detail.provider_id) {
       await loadProviderModels(detail.provider_id);

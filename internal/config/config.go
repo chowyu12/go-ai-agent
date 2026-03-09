@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	Log      LogConfig      `yaml:"log"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	Upload   UploadConfig   `yaml:"upload"`
+	Workspace string         `yaml:"workspace"`
+	Server    ServerConfig   `yaml:"server"`
+	Database  DatabaseConfig `yaml:"database"`
+	Log       LogConfig      `yaml:"log"`
+	JWT       JWTConfig      `yaml:"jwt"`
+	Upload    UploadConfig   `yaml:"upload"`
 }
 
 type UploadConfig struct {

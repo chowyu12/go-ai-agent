@@ -34,6 +34,10 @@
           <el-icon><MagicStick /></el-icon>
           <template #title>技能管理</template>
         </el-menu-item>
+        <el-menu-item index="/mcp-servers">
+          <el-icon><Promotion /></el-icon>
+          <template #title>MCP 服务</template>
+        </el-menu-item>
         <el-menu-item index="/chat">
           <el-icon><ChatDotRound /></el-icon>
           <template #title>对话测试</template>

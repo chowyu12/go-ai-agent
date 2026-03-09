@@ -7,8 +7,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 	"github.com/robfig/cron/v3"
 )
 
@@ -42,16 +44,28 @@ func Handler(_ context.Context, args string) (string, error) {
 	}
 }
 
-func baseDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		home = "/tmp"
+func scriptDir() string {
+	if d := workspace.CronScripts(); d != "" {
+		return d
 	}
-	return filepath.Join(home, ".agent-cron")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".go-agent", "cron", "scripts")
 }
 
-func scriptDir() string { return filepath.Join(baseDir(), "scripts") }
-func logDir() string    { return filepath.Join(baseDir(), "logs") }
+func logDir() string {
+	if d := workspace.CronLogs(); d != "" {
+		return d
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".go-agent", "cron", "logs")
+}
+
+func defaultPath() string {
+	if runtime.GOOS == "darwin" {
+		return "/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+	}
+	return "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+}
 
 func saveScript(p crontabArgs) (string, error) {
 	if p.Name == "" {
@@ -73,7 +87,7 @@ func saveScript(p crontabArgs) (string, error) {
 
 	content := p.Content
 	if !strings.HasPrefix(strings.TrimSpace(content), "#!") {
-		content = "#!/bin/bash\nset -euo pipefail\n\n" + content
+		content = "#!/bin/bash\nset -eo pipefail\nexport PATH=\"" + defaultPath() + ":$PATH\"\n\n" + content
 	}
 
 	filePath := filepath.Join(dir, name)
@@ -90,6 +104,10 @@ func addJob(p crontabArgs) (string, error) {
 	}
 	if p.Command == "" {
 		return "", fmt.Errorf("command is required for add_job")
+	}
+
+	if strings.HasPrefix(p.Expression, "@every") {
+		return "", fmt.Errorf("@every is not supported by system crontab; use a standard 5-field expression (e.g. '*/5 * * * *')")
 	}
 
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
@@ -113,19 +131,57 @@ func addJob(p crontabArgs) (string, error) {
 	entry := fmt.Sprintf("%s %s", p.Expression, command)
 
 	existing, _ := exec.Command("crontab", "-l").Output()
-	for _, line := range strings.Split(string(existing), "\n") {
+	existingStr := string(existing)
+	for _, line := range strings.Split(existingStr, "\n") {
 		if strings.TrimSpace(line) == entry {
 			return fmt.Sprintf("Job already exists: %s", entry), nil
 		}
 	}
 
-	cmd := exec.Command("bash", "-c", fmt.Sprintf(`(crontab -l 2>/dev/null; echo %q) | crontab -`, entry))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("add crontab: %w\n%s", err, string(output))
+	newCrontab := ensureEnvHeader(existingStr)
+	newCrontab = strings.TrimRight(newCrontab, "\n") + "\n" + entry + "\n"
+
+	if err := installCrontab(newCrontab); err != nil {
+		return "", err
 	}
 
 	return fmt.Sprintf("Cron job added:\n  %s", entry), nil
+}
+
+func ensureEnvHeader(existing string) string {
+	hasShell := false
+	hasPath := false
+	for _, line := range strings.Split(existing, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "SHELL=") {
+			hasShell = true
+		}
+		if strings.HasPrefix(trimmed, "PATH=") {
+			hasPath = true
+		}
+	}
+
+	var header strings.Builder
+	if !hasShell {
+		header.WriteString("SHELL=/bin/bash\n")
+	}
+	if !hasPath {
+		header.WriteString("PATH=" + defaultPath() + "\n")
+	}
+	if header.Len() == 0 {
+		return existing
+	}
+	return header.String() + existing
+}
+
+func installCrontab(content string) error {
+	cmd := exec.Command("crontab", "-")
+	cmd.Stdin = strings.NewReader(content)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("install crontab: %w\n%s", err, string(output))
+	}
+	return nil
 }
 
 func listJobs() (string, error) {
@@ -143,11 +199,8 @@ func listJobs() (string, error) {
 	}
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Current crontab (%d entries):\n", len(lines)))
+	sb.WriteString(fmt.Sprintf("Current crontab (%d lines):\n", len(lines)))
 	for i, line := range lines {
-		if strings.TrimSpace(line) == "" || strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
-		}
 		sb.WriteString(fmt.Sprintf("  %d. %s\n", i+1, line))
 	}
 	return sb.String(), nil
@@ -177,10 +230,12 @@ func removeJob(p crontabArgs) (string, error) {
 	}
 
 	newCrontab := strings.Join(kept, "\n")
-	cmd := exec.Command("bash", "-c", fmt.Sprintf(`echo %q | crontab -`, newCrontab))
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("update crontab: %w\n%s", err, string(output))
+	if !strings.HasSuffix(newCrontab, "\n") {
+		newCrontab += "\n"
+	}
+
+	if err := installCrontab(newCrontab); err != nil {
+		return "", err
 	}
 
 	var sb strings.Builder

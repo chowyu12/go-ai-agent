@@ -11,6 +11,7 @@ type Store interface {
 	AgentStore
 	ToolStore
 	SkillStore
+	MCPServerStore
 	ConversationStore
 	UserStore
 	FileStore
@@ -41,6 +42,9 @@ type AgentStore interface {
 	GetAgentSkills(ctx context.Context, agentID int64) ([]model.Skill, error)
 	SetAgentChildren(ctx context.Context, agentID int64, childIDs []int64) error
 	GetAgentChildren(ctx context.Context, agentID int64) ([]model.Agent, error)
+
+	SetAgentMCPServers(ctx context.Context, agentID int64, mcpServerIDs []int64) error
+	GetAgentMCPServers(ctx context.Context, agentID int64) ([]model.MCPServer, error)
 }
 
 type ToolStore interface {
@@ -60,6 +64,14 @@ type SkillStore interface {
 
 	SetSkillTools(ctx context.Context, skillID int64, toolIDs []int64) error
 	GetSkillTools(ctx context.Context, skillID int64) ([]model.Tool, error)
+}
+
+type MCPServerStore interface {
+	CreateMCPServer(ctx context.Context, s *model.MCPServer) error
+	GetMCPServer(ctx context.Context, id int64) (*model.MCPServer, error)
+	ListMCPServers(ctx context.Context, q model.ListQuery) ([]*model.MCPServer, int64, error)
+	UpdateMCPServer(ctx context.Context, id int64, req model.UpdateMCPServerReq) error
+	DeleteMCPServer(ctx context.Context, id int64) error
 }
 
 type ConversationStore interface {

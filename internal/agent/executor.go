@@ -12,6 +12,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
+	"github.com/chowyu12/go-ai-agent/internal/agent/tools/mcp"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
 	"github.com/chowyu12/go-ai-agent/internal/store"
@@ -70,11 +71,19 @@ type execContext struct {
 
 	agentTools    []model.Tool
 	subAgentTools []Tool
+	mcpTools      []Tool
+	mcpManager    *mcp.Manager
 	toolSkillMap  map[string]string
 }
 
 func (ec *execContext) hasTools() bool {
-	return len(ec.agentTools) > 0 || len(ec.subAgentTools) > 0
+	return len(ec.agentTools) > 0 || len(ec.subAgentTools) > 0 || len(ec.mcpTools) > 0
+}
+
+func (ec *execContext) closeMCP() {
+	if ec.mcpManager != nil {
+		ec.mcpManager.Close()
+	}
 }
 
 func (ec *execContext) stepMeta() *model.StepMetadata {
@@ -94,6 +103,7 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	if err != nil {
 		return nil, err
 	}
+	defer ec.closeMCP()
 
 	ec.l.WithField("user", req.UserID).Info("[Execute] >> start")
 	if body, err := json.Marshal(req); err == nil {
@@ -108,6 +118,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	if err != nil {
 		return err
 	}
+	defer ec.closeMCP()
 
 	ec.l.WithField("user", req.UserID).Info("[Execute] >> start (stream)")
 
@@ -171,6 +182,8 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 	tracker := NewStepTracker(e.store, conv.ID)
 	subAgentTools := e.buildSubAgentTools(ctx, ag.ID, tracker)
 
+	mcpManager, mcpTools := e.connectMCPServers(ctx, ag.ID, tracker, toolSkillMap)
+
 	logResourceSummary(l, agentTools, skills, subAgentTools)
 
 	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
@@ -187,8 +200,54 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 		l:             l.WithField("conv", conv.UUID),
 		agentTools:    agentTools,
 		subAgentTools: subAgentTools,
+		mcpTools:      mcpTools,
+		mcpManager:    mcpManager,
 		toolSkillMap:  toolSkillMap,
 	}, nil
+}
+
+func (e *Executor) connectMCPServers(ctx context.Context, agentID int64, tracker *StepTracker, toolSkillMap map[string]string) (*mcp.Manager, []Tool) {
+	servers, err := e.store.GetAgentMCPServers(ctx, agentID)
+	if err != nil {
+		log.WithError(err).Warn("[MCP] get agent mcp servers failed")
+		return nil, nil
+	}
+	if len(servers) == 0 {
+		return nil, nil
+	}
+
+	mgr := mcp.NewManager()
+	if err := mgr.Connect(ctx, servers); err != nil {
+		log.WithError(err).Warn("[MCP] connect failed")
+		return nil, nil
+	}
+	if !mgr.HasTools() {
+		mgr.Close()
+		return nil, nil
+	}
+
+	infos := mgr.Tools()
+	mcpTools := make([]Tool, 0, len(infos))
+	for _, info := range infos {
+		info := info
+		toolSkillMap[info.Name] = "mcp:" + info.ServerName
+		base := &dynamicTool{
+			toolName: info.Name,
+			toolDesc: info.Description,
+			params:   info.Parameters,
+			handler: func(ctx context.Context, input string) (string, error) {
+				return mgr.CallTool(ctx, info.Name, input)
+			},
+		}
+		mcpTools = append(mcpTools, &trackedTool{
+			baseTool:  base,
+			name:      info.Name,
+			skillName: "mcp:" + info.ServerName,
+			tracker:   tracker,
+		})
+	}
+	log.WithField("count", len(mcpTools)).Info("[MCP] tools loaded")
+	return mgr, mcpTools
 }
 
 func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Tool, map[string]string, error) {
@@ -247,11 +306,12 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 	if ec.hasTools() {
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
+		lcTools = append(lcTools, ec.mcpTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools)
 		ec.l.Info("[Execute]    mode = tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = simple")
@@ -391,11 +451,12 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 	if ec.hasTools() {
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
+		lcTools = append(lcTools, ec.mcpTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools)
 		ec.l.Info("[Execute]    mode = stream + tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = stream")

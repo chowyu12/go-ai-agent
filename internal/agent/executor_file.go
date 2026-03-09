@@ -19,6 +19,7 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/parser"
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 )
 
 func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileType model.ChatFileType) *model.File {
@@ -71,7 +72,11 @@ func (e *Executor) loadRemoteFile(ctx context.Context, rawURL string, chatFileTy
 	if ext == "" && strings.HasPrefix(ct, "image/") {
 		ext = "." + strings.TrimPrefix(strings.SplitN(ct, ";", 2)[0], "image/")
 	}
-	tmpPath := filepath.Join(os.TempDir(), fmt.Sprintf("ai-agent-url-%d%s", time.Now().UnixNano(), ext))
+	tmpDir := workspace.Tmp()
+	if tmpDir == "" {
+		tmpDir = os.TempDir()
+	}
+	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("ai-agent-url-%d%s", time.Now().UnixNano(), ext))
 	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
 		l.WithError(err).Warn("[Execute] save temp file failed, skipping")
 		return nil

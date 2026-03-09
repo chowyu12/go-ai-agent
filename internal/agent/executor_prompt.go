@@ -188,7 +188,7 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 	return result
 }
 
-func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []Tool) []openai.Tool {
+func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []Tool, mcpTools []Tool) []openai.Tool {
 	var result []openai.Tool
 
 	for _, mt := range modelTools {
@@ -235,6 +235,25 @@ func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []Tool) []openai.To
 					},
 					"required": []string{"input"},
 				},
+			},
+		})
+	}
+
+	for _, t := range mcpTools {
+		mt, ok := t.(*trackedTool)
+		if !ok {
+			continue
+		}
+		dt, ok := mt.baseTool.(*dynamicTool)
+		if !ok {
+			continue
+		}
+		result = append(result, openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        dt.toolName,
+				Description: dt.toolDesc,
+				Parameters:  dt.params,
 			},
 		})
 	}

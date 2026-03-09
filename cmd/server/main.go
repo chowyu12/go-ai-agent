@@ -19,6 +19,7 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/handler"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
 	"github.com/chowyu12/go-ai-agent/internal/store/mysql"
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 	"github.com/chowyu12/go-ai-agent/web"
 )
 
@@ -36,6 +37,15 @@ func main() {
 	cfg, err := config.Load(*configFile)
 	if err != nil {
 		log.WithError(err).Fatal("load config failed")
+	}
+
+	if err := workspace.Init(cfg.Workspace); err != nil {
+		log.WithError(err).Fatal("init workspace failed")
+	}
+	log.WithField("path", workspace.Root()).Info("workspace initialized")
+
+	if cfg.Upload.Dir == "" || cfg.Upload.Dir == "./uploads" {
+		cfg.Upload.Dir = workspace.Uploads()
 	}
 
 	store, err := mysql.New(cfg.Database)
@@ -56,6 +66,7 @@ func main() {
 	handler.NewAgentHandler(store).Register(mux)
 	handler.NewToolHandler(store).Register(mux)
 	handler.NewSkillHandler(store).Register(mux)
+	handler.NewMCPHandler(store).Register(mux)
 	handler.NewChatHandler(store, executor).Register(mux)
 	handler.NewFileHandler(store, cfg.Upload).Register(mux)
 

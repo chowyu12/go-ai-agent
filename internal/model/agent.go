@@ -19,9 +19,10 @@ type Agent struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 
-	Tools    []Tool  `json:"tools,omitzero"`
-	Skills   []Skill `json:"skills,omitzero"`
-	Children []Agent `json:"children,omitzero"`
+	Tools      []Tool      `json:"tools,omitzero"`
+	Skills     []Skill     `json:"skills,omitzero"`
+	Children   []Agent     `json:"children,omitzero"`
+	MCPServers []MCPServer `json:"mcp_servers,omitzero"`
 }
 
 const (
@@ -65,6 +66,7 @@ type CreateAgentReq struct {
 	ToolIDs       []int64 `json:"tool_ids,omitzero"`
 	SkillIDs      []int64 `json:"skill_ids,omitzero"`
 	ChildIDs      []int64 `json:"child_ids,omitzero"`
+	MCPServerIDs  []int64 `json:"mcp_server_ids,omitzero"`
 }
 
 type UpdateAgentReq struct {
@@ -81,4 +83,5 @@ type UpdateAgentReq struct {
 	ToolIDs       []int64  `json:"tool_ids,omitzero"`
 	SkillIDs      []int64  `json:"skill_ids,omitzero"`
 	ChildIDs      []int64  `json:"child_ids,omitzero"`
+	MCPServerIDs  []int64  `json:"mcp_server_ids,omitzero"`
 }
