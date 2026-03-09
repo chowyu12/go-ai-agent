@@ -7,6 +7,7 @@ import (
 
 	log "github.com/sirupsen/logrus"
 
+	"github.com/chowyu12/go-ai-agent/internal/agent/tools"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
 
@@ -24,7 +25,9 @@ type ToolRegistry struct {
 
 func NewToolRegistry() *ToolRegistry {
 	r := &ToolRegistry{builtins: make(map[string]BuiltinHandler)}
-	registerDefaults(r)
+	for name, handler := range tools.DefaultBuiltins() {
+		r.builtins[name] = handler
+	}
 	return r
 }
 
@@ -66,26 +69,20 @@ func (r *ToolRegistry) buildTool(td model.Tool) Tool {
 		if json.Unmarshal(td.HandlerConfig, &cfg) != nil {
 			return nil
 		}
-		timeout := td.TimeoutSeconds()
 		return &dynamicTool{
 			toolName: td.Name,
 			toolDesc: td.Description,
-			handler: func(ctx context.Context, input string) (string, error) {
-				return httpToolHandler(ctx, cfg, timeout, input)
-			},
+			handler:  tools.NewHTTPHandler(cfg, td.TimeoutSeconds()),
 		}
 	case model.HandlerCommand:
 		var cfg model.CommandHandlerConfig
 		if json.Unmarshal(td.HandlerConfig, &cfg) != nil {
 			return nil
 		}
-		timeout := td.TimeoutSeconds()
 		return &dynamicTool{
 			toolName: td.Name,
 			toolDesc: td.Description,
-			handler: func(ctx context.Context, input string) (string, error) {
-				return commandToolHandler(ctx, cfg, timeout, input)
-			},
+			handler:  tools.NewCommandHandler(cfg, td.TimeoutSeconds()),
 		}
 	default:
 		return nil

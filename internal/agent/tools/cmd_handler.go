@@ -1,4 +1,4 @@
-package agent
+package tools
 
 import (
 	"bytes"
@@ -15,54 +15,14 @@ import (
 )
 
 var dangerousPatterns = []string{
-	"rm -rf /",
-	"rm -rf /*",
-	"rm -rf ~",
-	"mkfs",
-	"dd if=",
-	":(){:|:&};:",
-	"> /dev/sda",
-	"chmod -R 777 /",
-	"chown -R",
-	"shutdown",
-	"reboot",
-	"halt",
-	"poweroff",
-	"init 0",
-	"init 6",
-	"kill -9 1",
-	"killall",
-	"pkill",
-	"ssh-keygen",
-	"ssh ",
-	"scp ",
-	"sftp ",
-	"telnet ",
-	"nc -l",
-	"ncat -l",
-	"curl.*|.*sh",
-	"wget.*|.*sh",
-	"useradd",
-	"userdel",
-	"usermod",
-	"passwd",
-	"visudo",
-	"iptables -F",
-	"iptables -X",
-	"nft flush",
-	"crontab -r",
-	"systemctl disable",
-	"service.*stop",
-	"eval ",
-	"exec ",
-	"nohup ",
-	"> /etc/",
-	"tee /etc/",
-	"mount ",
-	"umount ",
-	"fdisk ",
-	"parted ",
-	"wipefs",
+	"rm -rf /", "rm -rf /*", "rm -rf ~", "mkfs", "dd if=", ":(){:|:&};:",
+	"> /dev/sda", "chmod -R 777 /", "chown -R", "shutdown", "reboot",
+	"halt", "poweroff", "init 0", "init 6", "kill -9 1", "killall", "pkill",
+	"ssh-keygen", "ssh ", "scp ", "sftp ", "telnet ", "nc -l", "ncat -l",
+	"curl.*|.*sh", "wget.*|.*sh", "useradd", "userdel", "usermod", "passwd",
+	"visudo", "iptables -F", "iptables -X", "nft flush", "crontab -r",
+	"systemctl disable", "service.*stop", "eval ", "exec ", "nohup ",
+	"> /etc/", "tee /etc/", "mount ", "umount ", "fdisk ", "parted ", "wipefs",
 }
 
 func checkDangerousCommand(cmdStr string) error {
@@ -79,6 +39,12 @@ func checkDangerousCommand(cmdStr string) error {
 		}
 	}
 	return nil
+}
+
+func NewCommandHandler(cfg model.CommandHandlerConfig, timeoutSec int) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, input string) (string, error) {
+		return commandToolHandler(ctx, cfg, timeoutSec, input)
+	}
 }
 
 func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, timeoutSec int, input string) (string, error) {
@@ -117,21 +83,21 @@ func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, tim
 	log.WithFields(log.Fields{"command": cmdStr, "shell": shell, "timeout": timeoutSec}).Info("[Tool] >> exec command")
 	err := cmd.Run()
 
-	result := stdout.String()
+	r := stdout.String()
 	if stderr.Len() > 0 {
-		result += "\n[stderr]\n" + stderr.String()
+		r += "\n[stderr]\n" + stderr.String()
 	}
 
 	const maxOutput = 10_000
-	if len(result) > maxOutput {
-		result = result[:maxOutput] + "\n... (output truncated)"
+	if len(r) > maxOutput {
+		r = r[:maxOutput] + "\n... (output truncated)"
 	}
 
 	if err != nil {
 		log.WithFields(log.Fields{"command": cmdStr, "error": err}).Warn("[Tool] << command failed")
-		return result, fmt.Errorf("command failed: %w", err)
+		return r, fmt.Errorf("command failed: %w", err)
 	}
 
 	log.WithField("command", cmdStr).Info("[Tool] << command ok")
-	return result, nil
+	return r, nil
 }

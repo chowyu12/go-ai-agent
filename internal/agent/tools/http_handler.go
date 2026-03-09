@@ -1,4 +1,4 @@
-package agent
+package tools
 
 import (
 	"context"
@@ -13,6 +13,12 @@ import (
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
+
+func NewHTTPHandler(cfg model.HTTPHandlerConfig, timeoutSec int) func(context.Context, string) (string, error) {
+	return func(ctx context.Context, input string) (string, error) {
+		return httpToolHandler(ctx, cfg, timeoutSec, input)
+	}
+}
 
 func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, timeoutSec int, input string) (string, error) {
 	urlStr := cfg.URL
@@ -68,39 +74,4 @@ func httpToolHandler(ctx context.Context, cfg model.HTTPHandlerConfig, timeoutSe
 		return "", fmt.Errorf("read response: %w", err)
 	}
 	return string(respBody), nil
-}
-
-func fetchURL(ctx context.Context, targetURL string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
-	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
-
-	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return "", fmt.Errorf("HTTP %d", resp.StatusCode)
-	}
-
-	contentType := resp.Header.Get("Content-Type")
-	reader, err := charset.NewReader(resp.Body, contentType)
-	if err != nil {
-		reader = resp.Body
-	}
-
-	body, err := io.ReadAll(io.LimitReader(reader, 10_000))
-	if err != nil {
-		return "", err
-	}
-	return string(body), nil
 }
