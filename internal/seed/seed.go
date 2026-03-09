@@ -285,6 +285,79 @@ func defaultTools() []model.Tool {
 			}),
 		},
 		{
+			Name:        "cron_parser",
+			Description: "解析 Cron 表达式，验证合法性并计算接下来的执行时间。支持标准 5 字段、6 字段（含秒）及 @daily/@hourly/@every 等描述符。",
+			HandlerType: model.HandlerBuiltin,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "cron_parser",
+				"description": "Parse and validate a cron expression, show next scheduled execution times. Supports standard 5-field (minute hour dom month dow), 6-field with seconds, and descriptors like @daily, @hourly, @every 5m.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"expression": map[string]any{
+							"type":        "string",
+							"description": "Cron expression, e.g. '*/5 * * * *', '0 9 * * 1-5', '@daily', '@every 30m'",
+						},
+						"count": map[string]any{
+							"type":        "integer",
+							"description": "Number of next execution times to show, default 5, max 20",
+						},
+						"timezone": map[string]any{
+							"type":        "string",
+							"description": "Timezone for display, e.g. 'Asia/Shanghai', 'UTC'. Default: server local timezone",
+						},
+					},
+					"required": []string{"expression"},
+				},
+			}),
+		},
+		{
+			Name:        "crontab",
+			Description: "定时任务管理工具。支持保存脚本、添加/查看/删除 crontab 定时任务。",
+			HandlerType: model.HandlerBuiltin,
+			Enabled:     true,
+			FunctionDef: mustJSON(map[string]any{
+				"name":        "crontab",
+				"description": "Manage cron jobs and shell scripts. Actions: save_script (create executable script), add_job (add crontab entry), list_jobs (show current crontab), remove_job (remove entry by pattern).",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"action": map[string]any{
+							"type":        "string",
+							"enum":        []string{"save_script", "add_job", "list_jobs", "remove_job"},
+							"description": "save_script: create a shell script; add_job: add crontab entry; list_jobs: show current crontab; remove_job: remove matching entries",
+						},
+						"name": map[string]any{
+							"type":        "string",
+							"description": "Script name (for save_script), e.g. 'backup_db', auto-appends .sh",
+						},
+						"content": map[string]any{
+							"type":        "string",
+							"description": "Shell script content (for save_script). Shebang added automatically if missing.",
+						},
+						"expression": map[string]any{
+							"type":        "string",
+							"description": "Cron expression (for add_job), e.g. '0 9 * * *', '*/5 * * * *'",
+						},
+						"command": map[string]any{
+							"type":        "string",
+							"description": "Command to schedule (for add_job), typically the script path from save_script",
+						},
+						"pattern": map[string]any{
+							"type":        "string",
+							"description": "Text pattern to match crontab entries for removal (for remove_job)",
+						},
+						"log_output": map[string]any{
+							"type":        "boolean",
+							"description": "Auto-redirect stdout/stderr to log file (for add_job), default false",
+						},
+					},
+					"required": []string{"action"},
+				},
+			}),
+		},
+		{
 			Name:        "shell_exec",
 			Description: "在本地服务器上执行 Shell 命令并返回输出结果。支持任意命令，超时 30 秒。",
 			HandlerType: model.HandlerCommand,
@@ -442,6 +515,43 @@ func defaultTools() []model.Tool {
 
 func defaultSkills() []model.Skill {
 	return []model.Skill{
+		{
+			Name:        "定时任务",
+			Description: "根据用户的自然语言描述，自动生成 Shell 脚本并配置 cron 定时执行。",
+			Instruction: `你是一个 Linux 定时任务专家。用户会用自然语言描述他们想定时执行的任务，你需要：
+
+## 工作流程
+
+1. **理解需求**：确认用户要做什么、多久执行一次、在哪个时区
+2. **生成 cron 表达式**：用 cron_parser 工具验证表达式并展示执行时间，让用户确认
+3. **编写脚本**：用 crontab 工具的 save_script 动作保存脚本
+4. **安装定时任务**：用 crontab 工具的 add_job 动作注册到 crontab
+
+## 脚本编写规范
+
+- 开头加 set -euo pipefail，遇到错误立即停止
+- 关键操作前后加 echo 打印进度日志（带时间戳）
+- 涉及文件操作时先检查路径是否存在
+- 涉及清理/删除操作时一定要加安全校验（路径非空、非根目录等）
+- 需要的环境变量在脚本顶部用变量声明，便于修改
+- 添加简要注释说明脚本用途
+
+## 输出格式
+
+完成后汇总告知用户：
+- 脚本路径
+- Cron 表达式及含义
+- 接下来几次执行时间
+- 日志文件路径（如果启用了 log_output）
+- 如何查看/修改/删除该定时任务
+
+## 安全原则
+
+- 不要执行 rm -rf / 等危险命令
+- 清理任务要限定明确的目录范围
+- 涉及数据库操作建议先备份
+- 建议用户 add_job 时开启 log_output 以便排查问题`,
+		},
 		{
 			Name:        "翻译助手",
 			Description: "多语言翻译技能，能够将文本在中英日韩等多种语言之间互译。",
