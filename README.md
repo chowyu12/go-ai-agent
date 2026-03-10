@@ -27,9 +27,48 @@
 
 ### 技能系统
 
-- 预置技能：翻译助手、代码审查、文章摘要、写作助手、数据分析、SQL 助手
-- 每个技能可关联多个工具，按指令模板执行
-- 支持自定义技能和指令
+- 采用 OpenClaw 标准格式，每个技能是一个独立目录（`SKILL.md` + `manifest.json` + 可执行代码）
+- 三种来源：ClawHub 市场安装、本地目录扫描同步、Web UI 自定义创建
+- 技能可在 `manifest.json` 中声明工具定义（parameters），Agent 执行时自动注册为可调用工具
+- 支持可执行技能（`index.js` / `index.py`），通过子进程运行工具逻辑
+- 纯指令技能将 `SKILL.md` 内容注入 System Prompt，引导 LLM 按指令推理
+- 预置 7 个内置技能（定时任务、翻译助手、代码审查、文章摘要、写作助手、数据分析、SQL 助手），启动时自动生成到 `~/.go-agent/skills/`
+- 支持从 [ClawHub](https://clawhub.com) 一键安装技能（输入技能名称如 `himalaya` 即可下载）
+- 支持本地目录同步，手动放置技能目录后点击"同步"即可导入
+
+**技能目录结构：**
+
+```
+~/.go-agent/skills/
+  brave-web-search/
+    SKILL.md          # 技能指令（注入 System Prompt）
+    manifest.json     # 元数据、工具定义、配置、权限
+    index.js          # 可选：可执行工具逻辑
+    README.md         # 可选：文档
+```
+
+**manifest.json 示例：**
+
+```json
+{
+  "name": "brave-web-search",
+  "version": "1.0.0",
+  "description": "Search the web using Brave Search API",
+  "author": "niceperson",
+  "main": "index.js",
+  "tools": [
+    {
+      "name": "web_search",
+      "description": "Search the web",
+      "parameters": {
+        "type": "object",
+        "properties": { "query": { "type": "string" } },
+        "required": ["query"]
+      }
+    }
+  ]
+}
+```
 
 ### 对话与记忆
 
@@ -83,11 +122,15 @@ go-ai-agent/
 │   └── config.yaml          # 配置文件
 ├── internal/
 │   ├── agent/               # Agent 执行器、工具注册、记忆管理、步骤追踪
+│   │   └── tools/           # 工具实现（builtin/http/command/browser/cron/mcp）
 │   ├── config/              # 配置解析
-│   ├── handler/             # HTTP Handler（Agent/Provider/Tool/Skill/Chat/Auth）
+│   ├── handler/             # HTTP Handler（Agent/Provider/Tool/Skill/MCP/Chat/Auth）
 │   ├── model/               # 领域模型定义
 │   ├── provider/            # LLM Provider 适配层
 │   ├── seed/                # 初始化种子数据（默认工具和技能）
+│   ├── skill/               # 技能加载器、运行器
+│   │   └── clawhub/         # ClawHub 市场客户端（下载/安装）
+│   ├── workspace/           # 统一工作空间管理（~/.go-agent/）
 │   └── store/
 │       └── mysql/           # MySQL 数据访问实现
 ├── migrations/              # SQL 迁移脚本
@@ -201,6 +244,9 @@ make deps             # 整理 Go 依赖
 | GET/POST/PUT/DELETE | `/agents`                  | Agent 管理           | 读：登录 / 写：超管 |
 | GET/POST/PUT/DELETE | `/tools`                   | 工具管理             | 读：登录 / 写：超管 |
 | GET/POST/PUT/DELETE | `/skills`                  | 技能管理             | 读：登录 / 写：超管 |
+| POST                | `/skills/install`          | 从 ClawHub 安装技能  | 超管                |
+| POST                | `/skills/sync`             | 同步本地技能目录     | 超管                |
+| GET/POST/PUT/DELETE | `/mcp-servers`             | MCP 服务管理         | 读：登录 / 写：超管 |
 | POST                | `/chat/completions`        | 阻塞式对话           | 登录 / Agent Token  |
 | POST                | `/chat/stream`             | 流式对话（SSE）      | 登录 / Agent Token  |
 | GET/DELETE          | `/conversations`           | 会话管理             | 登录                |

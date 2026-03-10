@@ -58,6 +58,7 @@ type ToolStore interface {
 type SkillStore interface {
 	CreateSkill(ctx context.Context, s *model.Skill) error
 	GetSkill(ctx context.Context, id int64) (*model.Skill, error)
+	GetSkillByDirName(ctx context.Context, dirName string) (*model.Skill, error)
 	ListSkills(ctx context.Context, q model.ListQuery) ([]*model.Skill, int64, error)
 	UpdateSkill(ctx context.Context, id int64, req model.UpdateSkillReq) error
 	DeleteSkill(ctx context.Context, id int64) error

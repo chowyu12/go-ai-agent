@@ -15,7 +15,9 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools/mcp"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
+	"github.com/chowyu12/go-ai-agent/internal/skill"
 	"github.com/chowyu12/go-ai-agent/internal/store"
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 )
 
 // ============================================================
@@ -72,12 +74,13 @@ type execContext struct {
 	agentTools    []model.Tool
 	subAgentTools []Tool
 	mcpTools      []Tool
+	skillTools    []Tool
 	mcpManager    *mcp.Manager
 	toolSkillMap  map[string]string
 }
 
 func (ec *execContext) hasTools() bool {
-	return len(ec.agentTools) > 0 || len(ec.subAgentTools) > 0 || len(ec.mcpTools) > 0
+	return len(ec.agentTools) > 0 || len(ec.subAgentTools) > 0 || len(ec.mcpTools) > 0 || len(ec.skillTools) > 0
 }
 
 func (ec *execContext) closeMCP() {
@@ -183,6 +186,7 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 	subAgentTools := e.buildSubAgentTools(ctx, ag.ID, tracker)
 
 	mcpManager, mcpTools := e.connectMCPServers(ctx, ag.ID, tracker, toolSkillMap)
+	skillTools := e.buildSkillManifestTools(skills, tracker, toolSkillMap)
 
 	logResourceSummary(l, agentTools, skills, subAgentTools)
 
@@ -201,6 +205,7 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 		agentTools:    agentTools,
 		subAgentTools: subAgentTools,
 		mcpTools:      mcpTools,
+		skillTools:    skillTools,
 		mcpManager:    mcpManager,
 		toolSkillMap:  toolSkillMap,
 	}, nil
@@ -248,6 +253,56 @@ func (e *Executor) connectMCPServers(ctx context.Context, agentID int64, tracker
 	}
 	log.WithField("count", len(mcpTools)).Info("[MCP] tools loaded")
 	return mgr, mcpTools
+}
+
+func (e *Executor) buildSkillManifestTools(skills []model.Skill, tracker *StepTracker, toolSkillMap map[string]string) []Tool {
+	var result []Tool
+	for _, sk := range skills {
+		if !sk.Enabled || len(sk.ToolDefs) == 0 {
+			continue
+		}
+		var toolDefs []model.SkillManifestTool
+		if err := json.Unmarshal(sk.ToolDefs, &toolDefs); err != nil {
+			log.WithError(err).WithField("skill", sk.Name).Warn("[Skill] parse tool_defs failed")
+			continue
+		}
+		for _, td := range toolDefs {
+			td := td
+			toolSkillMap[td.Name] = sk.Name
+			var handler func(ctx context.Context, input string) (string, error)
+
+			if sk.MainFile != "" && sk.DirName != "" {
+				skillDir := workspace.SkillDir(sk.DirName)
+				if skillDir != "" {
+					mainFile := sk.MainFile
+					handler = func(ctx context.Context, input string) (string, error) {
+						return skill.RunTool(ctx, skillDir, mainFile, td.Name, input, nil, 0)
+					}
+				}
+			}
+			if handler == nil {
+				instruction := sk.Instruction
+				handler = func(_ context.Context, input string) (string, error) {
+					return fmt.Sprintf("[skill:%s] 请根据技能指令处理。输入: %s\n指令: %s", sk.Name, input, instruction), nil
+				}
+			}
+
+			base := &dynamicTool{
+				toolName: td.Name,
+				toolDesc: td.Description,
+				params:   td.Parameters,
+				handler:  handler,
+			}
+			result = append(result, &trackedTool{
+				baseTool:  base,
+				name:      td.Name,
+				skillName: sk.Name,
+				tracker:   tracker,
+			})
+		}
+		log.WithFields(log.Fields{"skill": sk.Name, "manifest_tools": len(toolDefs)}).Debug("[Execute]    skill manifest tools loaded")
+	}
+	return result
 }
 
 func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Tool, map[string]string, error) {
@@ -307,11 +362,12 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
 		lcTools = append(lcTools, ec.mcpTools...)
+		lcTools = append(lcTools, ec.skillTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools, ec.skillTools)
 		ec.l.Info("[Execute]    mode = tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = simple")
@@ -452,11 +508,12 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
 		lcTools = append(lcTools, ec.subAgentTools...)
 		lcTools = append(lcTools, ec.mcpTools...)
+		lcTools = append(lcTools, ec.skillTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools, ec.skillTools)
 		ec.l.Info("[Execute]    mode = stream + tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = stream")

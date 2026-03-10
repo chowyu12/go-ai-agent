@@ -4,11 +4,17 @@
       <template #header>
         <div class="card-header">
           <span class="card-title">技能管理</span>
-          <div>
-            <el-input v-model="keyword" placeholder="搜索" clearable style="width: 200px; margin-right: 12px;" @clear="loadData" @keyup.enter="loadData">
+          <div class="header-actions">
+            <el-input v-model="keyword" placeholder="搜索" clearable style="width: 200px;" @clear="loadData" @keyup.enter="loadData">
               <template #prefix><el-icon><Search /></el-icon></template>
             </el-input>
-            <el-button v-if="authStore.isAdmin" type="primary" @click="openDialog()">
+            <el-button @click="handleSync" :loading="syncing">
+              <el-icon><Refresh /></el-icon> 同步本地
+            </el-button>
+            <el-button type="warning" @click="installDialogVisible = true">
+              <el-icon><Download /></el-icon> ClawHub 安装
+            </el-button>
+            <el-button v-if="authStore.isAdmin" type="primary" @click="$router.push('/skills/create')">
               <el-icon><Plus /></el-icon> 新增
             </el-button>
           </div>
@@ -16,14 +22,35 @@
       </template>
 
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="id" label="ID" width="80" />
+        <el-table-column prop="id" label="ID" width="70" />
         <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="instruction" label="指令" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
+        <el-table-column label="来源" width="110">
           <template #default="{ row }">
-            <el-button link type="primary" @click="openDialog(row)">编辑</el-button>
+            <el-tag v-if="row.source === 'clawhub'" type="warning" size="small">ClawHub</el-tag>
+            <el-tag v-else-if="row.source === 'local'" type="success" size="small">本地</el-tag>
+            <el-tag v-else type="info" size="small">自定义</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="version" label="版本" width="90" />
+        <el-table-column prop="author" label="作者" width="100" />
+        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">
+              {{ row.enabled ? '启用' : '禁用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="工具" width="80">
+          <template #default="{ row }">
+            <span v-if="row.tool_defs">{{ toolCount(row.tool_defs) }}</span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="created_at" label="创建时间" width="170" />
+        <el-table-column v-if="authStore.isAdmin" label="操作" width="140" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="$router.push(`/skills/${row.id}/edit`)">编辑</el-button>
             <el-popconfirm title="确定删除？" @confirm="handleDelete(row.id)">
               <template #reference>
                 <el-button link type="danger">删除</el-button>
@@ -41,26 +68,18 @@
       />
     </el-card>
 
-    <el-dialog v-model="dialogVisible" :title="form.id ? '编辑技能' : '新增技能'" width="640px" destroy-on-close>
-      <el-form :model="form" label-width="100px">
-        <el-form-item label="名称" required>
-          <el-input v-model="form.name" placeholder="技能名称" />
+    <el-dialog v-model="installDialogVisible" title="从 ClawHub 安装技能" width="480px" destroy-on-close>
+      <el-form @submit.prevent="handleInstall">
+        <el-form-item label="技能名称" required>
+          <el-input v-model="installSlug" placeholder="himalaya" />
         </el-form-item>
-        <el-form-item label="描述">
-          <el-input v-model="form.description" type="textarea" :rows="2" />
-        </el-form-item>
-        <el-form-item label="指令">
-          <el-input v-model="form.instruction" type="textarea" :rows="6" placeholder="技能指令，会注入到 Agent 的 System Prompt 中" />
-        </el-form-item>
-        <el-form-item label="关联工具">
-          <el-select v-model="form.tool_ids" multiple placeholder="选择工具" style="width: 100%">
-            <el-option v-for="t in allTools" :key="t.id" :label="t.name" :value="t.id" />
-          </el-select>
-        </el-form-item>
+        <p style="color: #909399; font-size: 13px;">
+          输入 ClawHub 技能标识，例如 <code>himalaya</code>、<code>gmail</code>、<code>tavily-search</code>
+        </p>
       </el-form>
       <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
+        <el-button @click="installDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleInstall" :loading="installing">安装</el-button>
       </template>
     </el-dialog>
   </div>
@@ -70,7 +89,6 @@
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { skillApi, type Skill } from '../../api/skill'
-import { toolApi, type Tool } from '../../api/tool'
 import { useAuthStore } from '@/stores/auth'
 
 const authStore = useAuthStore()
@@ -81,11 +99,20 @@ const total = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 const keyword = ref('')
+const syncing = ref(false)
 
-const dialogVisible = ref(false)
-const submitting = ref(false)
-const form = ref<any>({})
-const allTools = ref<Tool[]>([])
+const installDialogVisible = ref(false)
+const installSlug = ref('')
+const installing = ref(false)
+
+function toolCount(toolDefs: any): number {
+  if (!toolDefs) return 0
+  if (Array.isArray(toolDefs)) return toolDefs.length
+  try {
+    const parsed = typeof toolDefs === 'string' ? JSON.parse(toolDefs) : toolDefs
+    return Array.isArray(parsed) ? parsed.length : 0
+  } catch { return 0 }
+}
 
 async function loadData() {
   loading.value = true
@@ -98,37 +125,35 @@ async function loadData() {
   }
 }
 
-async function openDialog(row?: Skill) {
-  const toolRes: any = await toolApi.list({ page: 1, page_size: 100 })
-  allTools.value = toolRes.data?.list || []
-
-  if (row) {
-    const res: any = await skillApi.get(row.id)
-    const detail = res.data
-    form.value = {
-      ...detail,
-      tool_ids: detail.tools?.map((t: any) => t.id) || [],
-    }
-  } else {
-    form.value = { name: '', description: '', instruction: '', tool_ids: [] }
+async function handleSync() {
+  syncing.value = true
+  try {
+    const res: any = await skillApi.sync()
+    ElMessage.success(`同步完成，已同步 ${res.data?.synced || 0} 个技能`)
+    loadData()
+  } catch {
+    ElMessage.error('同步失败')
+  } finally {
+    syncing.value = false
   }
-  dialogVisible.value = true
 }
 
-async function handleSubmit() {
-  submitting.value = true
+async function handleInstall() {
+  if (!installSlug.value.trim()) {
+    ElMessage.warning('请输入技能 Slug')
+    return
+  }
+  installing.value = true
   try {
-    if (form.value.id) {
-      await skillApi.update(form.value.id, form.value)
-      ElMessage.success('更新成功')
-    } else {
-      await skillApi.create(form.value)
-      ElMessage.success('创建成功')
-    }
-    dialogVisible.value = false
+    await skillApi.install(installSlug.value.trim())
+    ElMessage.success('安装成功')
+    installDialogVisible.value = false
+    installSlug.value = ''
     loadData()
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || '安装失败')
   } finally {
-    submitting.value = false
+    installing.value = false
   }
 }
 
@@ -146,6 +171,7 @@ onMounted(loadData)
 </script>
 
 <style scoped>
-.card-header { display: flex; justify-content: space-between; align-items: center; }
+.card-header { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
 .card-title { font-size: 16px; font-weight: 600; }
+.header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>

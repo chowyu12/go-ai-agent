@@ -231,6 +231,16 @@ func (s *mockStore) ListSkills(_ context.Context, _ model.ListQuery) ([]*model.S
 func (s *mockStore) UpdateSkill(_ context.Context, _ int64, _ model.UpdateSkillReq) error {
 	return nil
 }
+func (s *mockStore) GetSkillByDirName(_ context.Context, dirName string) (*model.Skill, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, sk := range s.skillItems {
+		if sk.DirName == dirName {
+			return sk, nil
+		}
+	}
+	return nil, sql.ErrNoRows
+}
 func (s *mockStore) DeleteSkill(_ context.Context, _ int64) error { return nil }
 func (s *mockStore) SetSkillTools(_ context.Context, skillID int64, toolIDs []int64) error {
 	s.mu.Lock()

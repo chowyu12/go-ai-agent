@@ -21,6 +21,7 @@ func Init(dir string) error {
 	for _, sub := range []string{
 		"",
 		"uploads",
+		"skills",
 		"cron/scripts",
 		"cron/logs",
 		"tmp",
@@ -60,6 +61,20 @@ func CronLogs() string {
 		return ""
 	}
 	return filepath.Join(root, "cron", "logs")
+}
+
+func Skills() string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "skills")
+}
+
+func SkillDir(dirName string) string {
+	if root == "" || dirName == "" {
+		return ""
+	}
+	return filepath.Join(root, "skills", dirName)
 }
 
 func Tmp() string {
