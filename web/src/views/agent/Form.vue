@@ -120,10 +120,10 @@
             <el-form-item label="超时(秒)">
               <el-input-number
                 v-model="form.timeout"
-                :min="10"
-                :max="600"
+                :min="0"
                 style="width: 100%"
               />
+              <div class="form-hint">0 表示不限制超时</div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -370,7 +370,7 @@ const form = ref<any>({
   model_name: "",
   temperature: 0.7,
   max_tokens: 2048,
-  timeout: 120,
+  timeout: 0,
   max_history: 50,
   max_iterations: 10,
   tool_ids: [],

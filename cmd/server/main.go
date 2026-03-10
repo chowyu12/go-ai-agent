@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
+	"github.com/chowyu12/go-ai-agent/internal/agent/tools/browser"
 	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/config"
 	"github.com/chowyu12/go-ai-agent/internal/handler"
@@ -55,6 +56,11 @@ func main() {
 	defer store.Close()
 
 	seed.Init(context.Background(), store)
+
+	if cfg.Browser.Visible {
+		browser.SetVisible(true)
+		log.Info("browser tool: visible mode enabled")
+	}
 
 	registry := agentpkg.NewToolRegistry()
 	executor := agentpkg.NewExecutor(store, registry)

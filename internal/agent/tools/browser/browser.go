@@ -67,11 +67,18 @@ type browserManager struct {
 	refs        map[string]elementInfo
 	started     bool
 	tmpDir      string
+	visible     bool
 }
 
 var defaultBrowser = &browserManager{
 	tabs: make(map[string]*tabInfo),
 	refs: make(map[string]elementInfo),
+}
+
+func SetVisible(v bool) {
+	defaultBrowser.mu.Lock()
+	defer defaultBrowser.mu.Unlock()
+	defaultBrowser.visible = v
 }
 
 func Handler(ctx context.Context, args string) (string, error) {
@@ -155,15 +162,21 @@ func (bm *browserManager) ensureStarted() error {
 	}
 	bm.tmpDir = tmpDir
 
+	headless := !bm.visible
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-gpu", true),
+		chromedp.Flag("headless", headless),
+		chromedp.Flag("disable-gpu", headless),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-background-networking", true),
 		chromedp.WindowSize(1280, 720),
 		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
 	)
+
+	if bm.visible {
+		log.Info("[Browser] starting in visible mode (non-headless)")
+	}
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
 	bm.allocCtx = allocCtx

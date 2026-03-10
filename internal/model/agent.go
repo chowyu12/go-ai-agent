@@ -26,16 +26,12 @@ type Agent struct {
 }
 
 const (
-	DefaultAgentTimeout       = 120
 	DefaultAgentMaxHistory    = 50
 	DefaultAgentMaxIterations = 10
 )
 
 func (a *Agent) TimeoutSeconds() int {
-	if a.Timeout > 0 {
-		return a.Timeout
-	}
-	return DefaultAgentTimeout
+	return a.Timeout
 }
 
 func (a *Agent) HistoryLimit() int {

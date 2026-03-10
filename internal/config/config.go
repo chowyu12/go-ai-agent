@@ -13,6 +13,11 @@ type Config struct {
 	Log       LogConfig      `yaml:"log"`
 	JWT       JWTConfig      `yaml:"jwt"`
 	Upload    UploadConfig   `yaml:"upload"`
+	Browser   BrowserConfig  `yaml:"browser"`
+}
+
+type BrowserConfig struct {
+	Visible bool `yaml:"visible"`
 }
 
 type UploadConfig struct {

@@ -10,3 +10,5 @@ database:
 
 log:
   level: info
+browser:
+  visible: true

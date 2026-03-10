@@ -340,8 +340,11 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 // ============================================================
 
 func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(ec.ag.TimeoutSeconds())*time.Second)
-	defer cancel()
+	if t := ec.ag.TimeoutSeconds(); t > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(t)*time.Second)
+		defer cancel()
+	}
 
 	history, err := e.memory.LoadHistory(ctx, ec.conv.ID, ec.ag.HistoryLimit())
 	if err != nil {
@@ -486,8 +489,11 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 // ============================================================
 
 func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler func(chunk model.StreamChunk) error) error {
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(ec.ag.TimeoutSeconds())*time.Second)
-	defer cancel()
+	if t := ec.ag.TimeoutSeconds(); t > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(t)*time.Second)
+		defer cancel()
+	}
 
 	history, err := e.memory.LoadHistory(ctx, ec.conv.ID, ec.ag.HistoryLimit())
 	if err != nil {
