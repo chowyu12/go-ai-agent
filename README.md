@@ -111,6 +111,162 @@
 | 前端    | Vue 3、TypeScript、Element Plus、Pinia、Vue Router |
 | 构建    | Go embed、Vite                                     |
 
+## 系统架构
+
+```mermaid
+graph TB
+    subgraph Client [客户端]
+        WebUI["Vue 3 + Element Plus<br/>管理后台 / 对话 Playground"]
+        API["REST / SSE API<br/>后端服务集成"]
+    end
+
+    subgraph Gateway [HTTP 网关]
+        Middleware["中间件链<br/>Logger → CORS → JWT Auth"]
+        Router["路由分发<br/>ServeMux"]
+    end
+
+    subgraph Handlers [Handler 层]
+        ChatH["ChatHandler<br/>对话 / 流式"]
+        AgentH["AgentHandler<br/>Agent CRUD"]
+        ToolH["ToolHandler<br/>工具 CRUD"]
+        SkillH["SkillHandler<br/>技能管理 / ClawHub"]
+        ProvH["ProviderHandler<br/>供应商 CRUD"]
+        AuthH["AuthHandler<br/>登录 / 注册"]
+        MCPH["MCPHandler<br/>MCP 服务管理"]
+        FileH["FileHandler<br/>文件上传"]
+    end
+
+    subgraph Core [Agent 执行引擎]
+        Executor["Executor<br/>prepare → execute/stream"]
+        Prompt["PromptBuilder<br/>System Prompt + 消息构建"]
+        ToolReg["ToolRegistry<br/>工具注册与调度"]
+        Memory["MemoryManager<br/>会话 / 历史管理"]
+        Tracker["StepTracker<br/>执行步骤追踪"]
+        SubAgent["SubAgentBuilder<br/>子 Agent 委派"]
+    end
+
+    subgraph Tools [工具层]
+        Builtin["内置工具<br/>time / uuid / calc / base64 / hash"]
+        BrowserT["Browser 自动化<br/>33 个 action"]
+        CmdT["命令执行<br/>Shell / Script"]
+        HttpT["HTTP 工具<br/>天气 / IP / 自定义"]
+        CronT["Cron 工具<br/>表达式解析 / crontab"]
+        UrlT["URL Reader<br/>网页内容读取"]
+        McpT["MCP Client<br/>外部工具协议"]
+    end
+
+    subgraph SkillSys [技能系统]
+        Loader["SkillLoader<br/>解析 manifest / SKILL.md"]
+        Runner["SkillRunner<br/>node / python 子进程"]
+        ClawHub["ClawHub Client<br/>技能市场下载"]
+    end
+
+    subgraph Provider [LLM 供应商]
+        Factory["ProviderFactory<br/>OpenAI 兼容适配"]
+        OpenAI["OpenAI"]
+        Qwen["Qwen 通义"]
+        Kimi["Kimi"]
+        OpenRouter["OpenRouter"]
+        NewAPI["NewAPI"]
+    end
+
+    subgraph Storage [持久化层]
+        Store["Store 接口"]
+        MySQL["MySQL 8.0"]
+        Workspace["Workspace<br/>~/.go-agent/<br/>skills / uploads / cron / tmp"]
+    end
+
+    WebUI --> Middleware
+    API --> Middleware
+    Middleware --> Router
+    Router --> ChatH & AgentH & ToolH & SkillH & ProvH & AuthH & MCPH & FileH
+
+    ChatH --> Executor
+    Executor --> Prompt
+    Executor --> ToolReg
+    Executor --> Memory
+    Executor --> Tracker
+    Executor --> SubAgent
+
+    ToolReg --> Builtin & BrowserT & CmdT & HttpT & CronT & UrlT & McpT
+
+    Executor --> SkillSys
+    SkillH --> Loader & ClawHub
+    Loader --> Workspace
+    Runner --> Workspace
+
+    Executor --> Factory
+    Factory --> OpenAI & Qwen & Kimi & OpenRouter & NewAPI
+
+    ChatH & AgentH & ToolH & SkillH & ProvH & AuthH & MCPH --> Store
+    Memory & Tracker --> Store
+    Store --> MySQL
+```
+
+## Agent 执行流程
+
+```mermaid
+sequenceDiagram
+    participant C as 客户端
+    participant H as ChatHandler
+    participant E as Executor
+    participant P as PromptBuilder
+    participant LLM as LLM Provider
+    participant T as Tool / Skill
+    participant DB as MySQL
+
+    C->>H: POST /chat/stream<br/>{agent_id, message, conversation_id?}
+    H->>E: ExecuteStream(ctx, req, chunkHandler)
+
+    rect rgb(240, 248, 255)
+        Note over E: Phase 1: prepare — 构建执行上下文
+        E->>DB: GetAgentByUUID + GetProvider
+        E->>DB: GetAgentTools + GetAgentSkills
+        E->>DB: GetOrCreateConversation
+        E->>E: connectMCPServers
+        E->>E: buildSubAgentTools
+        E->>E: buildSkillManifestTools
+        E->>E: loadRequestFiles
+    end
+
+    rect rgb(255, 248, 240)
+        Note over E: Phase 2: 构建消息
+        E->>P: buildSystemPrompt<br/>(agent 指令 + 技能 SKILL.md + 工具提示)
+        E->>P: buildMessages<br/>(system + history + user + files)
+        E->>P: buildLLMToolDefs<br/>(agent 工具 + MCP + 子Agent + 技能工具)
+    end
+
+    rect rgb(240, 255, 240)
+        Note over E: Phase 3: 工具调用循环 (max iterations)
+        loop 直到 LLM 不再调用工具
+            E->>LLM: CreateChatCompletionStream(messages, tools)
+            LLM-->>E: Stream Delta (文本 + tool_calls)
+            E-->>C: SSE: {delta: "文本片段"}
+
+            alt LLM 返回 tool_calls
+                loop 每个 tool_call
+                    E->>T: tool.Call(ctx, args)
+                    T-->>E: result (文本 / 文件 / JSON)
+                    E-->>C: SSE: {step: {type: "tool_call", name, input, output}}
+                end
+                Note over E: 将工具结果追加到 messages,<br/>进入下一轮循环
+            else LLM 返回纯文本
+                Note over E: 结束循环
+            end
+        end
+    end
+
+    rect rgb(248, 240, 255)
+        Note over E: Phase 4: 结果持久化
+        E->>DB: SaveUserMessage
+        E->>DB: SaveAssistantMessage
+        E->>DB: RecordStep (LLM Call)
+        E->>DB: recordUsedSkillSteps
+    end
+
+    E-->>C: SSE: {done: true, steps: [...]}
+```
+
 ## 项目结构
 
 ```
