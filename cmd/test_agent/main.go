@@ -15,6 +15,7 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
 	"github.com/chowyu12/go-ai-agent/internal/store/mysql"
+	"github.com/chowyu12/go-ai-agent/internal/tool"
 )
 
 var (
@@ -52,9 +53,8 @@ func main() {
 	}
 	defer store.Close()
 
-	seed.Init(context.Background(), store)
-
-	registry := agent.NewToolRegistry()
+	registry := tool.NewRegistry()
+	seed.Init(context.Background(), store, registry)
 	executor := agent.NewExecutor(store, registry)
 	ctx := context.Background()
 
@@ -76,7 +76,6 @@ func listAgents(ctx context.Context, s interface {
 	ListAgents(ctx context.Context, q model.ListQuery) ([]*model.Agent, int64, error)
 	GetAgentTools(ctx context.Context, agentID int64) ([]model.Tool, error)
 	GetAgentSkills(ctx context.Context, agentID int64) ([]model.Skill, error)
-	GetAgentChildren(ctx context.Context, agentID int64) ([]model.Agent, error)
 }) {
 	agents, total, err := s.ListAgents(ctx, model.ListQuery{Page: 1, PageSize: 50})
 	if err != nil {
@@ -94,7 +93,6 @@ func listAgents(ctx context.Context, s interface {
 	for _, a := range agents {
 		tools, _ := s.GetAgentTools(ctx, a.ID)
 		skills, _ := s.GetAgentSkills(ctx, a.ID)
-		children, _ := s.GetAgentChildren(ctx, a.ID)
 
 		toolNames := make([]string, 0, len(tools))
 		for _, t := range tools {
@@ -106,7 +104,6 @@ func listAgents(ctx context.Context, s interface {
 		fmt.Printf("  Model:      %s (provider_id=%d)\n", a.ModelName, a.ProviderID)
 		fmt.Printf("  Tools (%d):  %s\n", len(tools), strings.Join(toolNames, ", "))
 		fmt.Printf("  Skills:     %d\n", len(skills))
-		fmt.Printf("  Children:   %d\n", len(children))
 	}
 	fmt.Println()
 	fmt.Println(strings.Repeat("-", 80))

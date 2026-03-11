@@ -291,37 +291,6 @@
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item label="子 Agent">
-          <el-select
-            v-model="form.child_ids"
-            multiple
-            filterable
-            collapse-tags
-            collapse-tags-tooltip
-            :max-collapse-tags="3"
-            placeholder="搜索并选择子 Agent"
-            style="width: 100%"
-          >
-            <el-option
-              v-for="a in availableAgents"
-              :key="a.id"
-              :label="a.name"
-              :value="a.id"
-            >
-              <div
-                style="
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                "
-              >
-                <span>{{ a.name }}</span>
-                <span class="option-desc">{{ a.model_name }}</span>
-              </div>
-            </el-option>
-          </el-select>
-        </el-form-item>
-
         <el-form-item>
           <el-button type="primary" @click="handleSubmit" :loading="submitting">
             {{ isEdit ? "保存" : "创建" }}
@@ -343,7 +312,7 @@ import {
   RefreshRight,
   Select,
 } from "@element-plus/icons-vue";
-import { agentApi, type Agent } from "../../api/agent";
+import { agentApi } from "../../api/agent";
 import { providerApi, type Provider } from "../../api/provider";
 import { toolApi, type Tool } from "../../api/tool";
 import { skillApi, type Skill } from "../../api/skill";
@@ -375,14 +344,12 @@ const form = ref<any>({
   max_iterations: 10,
   tool_ids: [],
   skill_ids: [],
-  child_ids: [],
   mcp_server_ids: [],
 });
 
 const providers = ref<Provider[]>([]);
 const allTools = ref<Tool[]>([]);
 const allSkills = ref<Skill[]>([]);
-const allAgents = ref<Agent[]>([]);
 const allMcpServers = ref<McpServer[]>([]);
 
 const providerModels = ref<string[]>([]);
@@ -396,26 +363,20 @@ const localOnlyModels = computed(() => {
   return providerModels.value.filter((m) => !remoteSet.has(m));
 });
 
-const availableAgents = computed(() =>
-  allAgents.value.filter((a) => a.id !== form.value.id),
-);
-
 function goBack() {
   router.push({ name: "Agents" });
 }
 
 async function loadOptions() {
-  const [p, t, s, a, m] = await Promise.all([
+  const [p, t, s, m] = await Promise.all([
     providerApi.list({ page: 1, page_size: 100 }),
     toolApi.list({ page: 1, page_size: 100 }),
     skillApi.list({ page: 1, page_size: 100 }),
-    agentApi.list({ page: 1, page_size: 100 }),
     mcpApi.list({ page: 1, page_size: 100 }),
   ]);
   providers.value = (p as any).data?.list || [];
   allTools.value = (t as any).data?.list || [];
   allSkills.value = (s as any).data?.list || [];
-  allAgents.value = (a as any).data?.list || [];
   allMcpServers.value = (m as any).data?.list || [];
 }
 
@@ -472,7 +433,6 @@ async function loadAgent() {
       max_iterations: detail.max_iterations || 10,
       tool_ids: detail.tools?.map((t: any) => t.id) || [],
       skill_ids: detail.skills?.map((s: any) => s.id) || [],
-      child_ids: detail.children?.map((a: any) => a.id) || [],
       mcp_server_ids: detail.mcp_servers?.map((m: any) => m.id) || [],
     };
     if (detail.provider_id) {

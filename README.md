@@ -1,6 +1,6 @@
 # Go AI Agent
 
-基于 Go + Vue 3 构建的 AI Agent 管理与执行平台，支持多模型供应商接入、工具调用、技能编排和多轮对话。
+基于 Go + Vue 3 构建的 AI Agent 管理与执行平台，采用 Plan-Think-Act-Reflect 智能循环架构，支持多模型供应商接入、工具调用、技能编排、长期记忆和多轮对话。
 
 ![管理后台](portal.png)
 
@@ -9,8 +9,8 @@
 ### Agent 管理
 
 - Agent 增删改查，支持设置名称、UUID、系统提示词、模型参数（温度、最大 token 等）
-- 每个 Agent 可关联多个工具（Tools）、技能（Skills）和子 Agent
-- 支持工具优先执行策略，Agent 自动判断是否需要调用工具
+- 每个 Agent 可关联多个工具（Tools）、技能（Skills）和 MCP 服务
+- 默认启用 Agentic 模式：自动进行目标规划、主动推理、工具调用和自我反思
 
 ### 模型供应商
 
@@ -74,13 +74,14 @@
 
 - 支持多轮对话，自动维护上下文
 - 对话历史持久化存储（MySQL）
+- 长期记忆系统：自动从对话中提取关键信息，支持跨会话记忆召回
 - 支持流式（SSE）和阻塞式两种响应模式
 - 流式响应实时展示执行步骤
 
 ### 执行日志
 
 - 完整记录每次 Agent 调用的执行链路
-- 详细记录每个步骤：LLM 调用、工具调用、子 Agent 调用
+- 详细记录每个阶段：规划、推理、工具调用、反思
 - 包含输入输出、耗时、Token 用量、错误信息等
 
 ### 用户系统
@@ -105,7 +106,7 @@
 | 层级    | 技术                                               |
 | ------- | -------------------------------------------------- |
 | 后端    | Go 1.25、net/http、logrus                          |
-| AI 编排 | langchaingo（LLM 调用、Function Calling）          |
+| AI 编排 | Plan-Think-Act-Reflect 循环、Function Calling      |
 | 数据库  | MySQL                                              |
 | 认证    | JWT（golang-jwt/v5）、bcrypt                       |
 | 前端    | Vue 3、TypeScript、Element Plus、Pinia、Vue Router |
@@ -135,11 +136,21 @@ flowchart TB
     end
 
     subgraph engine [Agent 执行引擎]
-        Executor[Executor]
-        Prompt[PromptBuilder]
-        ToolReg[ToolRegistry]
-        Memory[MemoryManager]
+        Executor[Executor - 编排器]
+        Prompt[prompt.Builder]
+        ToolReg[tool.Registry]
         Tracker[StepTracker]
+    end
+
+    subgraph brain [Brain 认知层]
+        Planner[Planner - 目标分析与任务规划]
+        Reasoner[Reasoner - ReAct 主动推理]
+        Reflector[Reflector - 自我反思与评估]
+    end
+
+    subgraph mem [Memory 记忆层]
+        ConvMem[ConversationMemory - 对话历史]
+        LongMem[LongTermMemory - 长期记忆]
     end
 
     subgraph tools [工具层]
@@ -148,7 +159,7 @@ flowchart TB
         CmdT[Shell 命令执行]
         HttpT[HTTP 调用]
         McpT[MCP Client]
-        OtherT[Cron / URL Reader]
+        OtherT[Cron / URL Reader / CodeInterp]
     end
 
     subgraph skills [技能系统]
@@ -181,8 +192,14 @@ flowchart TB
     ChatH --> Executor
     Executor --> Prompt
     Executor --> ToolReg
-    Executor --> Memory
     Executor --> Tracker
+
+    Executor --> Planner
+    Executor --> Reasoner
+    Executor --> Reflector
+
+    Executor --> ConvMem
+    Executor --> LongMem
 
     ToolReg --> Builtin
     ToolReg --> BrowserT
@@ -195,61 +212,72 @@ flowchart TB
     Executor --> Runner
     SkillH --> ClawHubC
 
+    Planner --> Factory
+    Reasoner --> Factory
+    Reflector --> Factory
     Executor --> Factory
+    LongMem --> Factory
     Factory --> Models
 
     ChatH --> Store
     AgentH --> Store
     ToolH --> Store
     SkillH --> Store
-    Memory --> Store
+    ConvMem --> Store
     Tracker --> Store
     Loader --> WS
     Runner --> WS
     ClawHubC --> WS
 ```
 
-## Agent 执行流程
+## Agent 智能架构
 
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant H as ChatHandler
-    participant E as Executor
-    participant LLM as LLM Provider
-    participant T as Tools
-    participant DB as MySQL
+Agent 采用 **Plan → Think → Act → Reflect** 循环架构，具备六大核心能力：
 
-    C->>H: POST /chat/stream
+| 能力 | 模块 | 说明 |
+| --- | --- | --- |
+| 目标驱动 | `brain.Planner` | 分析用户意图，生成结构化执行计划（含目标、步骤、依赖关系） |
+| 主动推理 | `brain.Reasoner` | 每个步骤执行前进行 ReAct 推理，分析当前状态与最佳策略 |
+| 任务拆解 | `brain.Planner` | 将复杂请求分解为原子化步骤，声明步骤间依赖 |
+| 自我迭代 | `brain.Reflector` | 执行后自我评估质量，必要时触发计划修订（最多 3 次） |
+| 长期记忆 | `memory.LongTermMemory` | 自动提取对话中的关键信息，跨会话记忆召回 |
+| 工具调用 | `tool.Registry` | 统一管理内置工具、HTTP 工具、MCP 工具和技能工具 |
 
-    Note over E: Phase 1 - prepare
-    H->>E: ExecuteStream
-    E->>DB: Load Agent + Provider + Tools + Skills
-    E->>DB: GetOrCreate Conversation
-    E->>E: Connect MCP / Build SubAgent Tools / Load Files
+**执行流程：**
 
-    Note over E: Phase 2 - Build Messages
-    E->>E: System Prompt with skill instructions
-    E->>E: History messages + User message + Files
-    E->>E: Build LLM tool definitions
-
-    Note over E: Phase 3 - Tool Calling Loop
-    loop Until LLM stops calling tools
-        E->>LLM: Stream completion request
-        LLM-->>E: Text delta + tool_calls
-        E-->>C: SSE delta text
-        opt If tool_calls present
-            E->>T: Execute each tool
-            T-->>E: Tool results
-            E-->>C: SSE step events
-            Note over E: Append results to messages
-        end
-    end
-
-    Note over E: Phase 4 - Persist Results
-    E->>DB: Save user + assistant messages
-    E->>DB: Record execution steps
-    E-->>C: SSE done + final steps
+```
+用户请求
+  │
+  ▼
+Phase 0: 记忆召回 ── 从长期记忆中检索相关上下文
+  │
+  ▼
+Phase 1: 规划 ── Planner 生成目标 + 步骤计划
+  │
+  ▼
+Phase 2: 逐步执行循环
+  │  ┌─────────────────────────────────────────────┐
+  │  │  Think ── Reasoner 推理分析当前步骤         │
+  │  │    │                                         │
+  │  │    ▼                                         │
+  │  │  Act ── 执行步骤（可调用工具，多轮循环）    │
+  │  │    │                                         │
+  │  │    ▼                                         │
+  │  │  Reflect ── Reflector 评估执行质量           │
+  │  │    │                                         │
+  │  │    ├── 目标已达成 → 提前结束                 │
+  │  │    ├── 需要修订 → Replan 动态调整计划        │
+  │  │    └── 继续 → 下一步骤                       │
+  │  └─────────────────────────────────────────────┘
+  │
+  ▼
+Phase 3: 最终反思 ── 对整体执行进行质量评估
+  │
+  ▼
+Phase 4: 综合回答 ── 汇总各步骤结果生成最终回复
+  │
+  ▼
+Phase 5: 记忆提取 ── 后台异步提取并存储长期记忆
 ```
 
 ## 项目结构
@@ -262,16 +290,28 @@ go-ai-agent/
 ├── etc/
 │   └── config.yaml          # 配置文件
 ├── internal/
-│   ├── agent/               # Agent 执行器、工具注册、记忆管理、步骤追踪
-│   │   └── tools/           # 工具实现（builtin/http/command/browser/cron/mcp）
+│   ├── agent/               # Agent 编排器（Executor + Agentic 循环 + Stream）
+│   ├── brain/               # 认知层（Planner 规划 / Reasoner 推理 / Reflector 反思）
+│   ├── memory/              # 记忆层（ConversationMemory 对话历史 / LongTermMemory 长期记忆）
+│   ├── prompt/              # Prompt 构建（系统提示词 / 工具定义 / 文件处理）
+│   ├── tool/                # 工具系统
+│   │   ├── builtin/         # 内置工具（time/uuid/calc/hash/base64/random）
+│   │   ├── browser/         # 浏览器自动化（33 种操作）
+│   │   ├── codeinterp/      # 代码解释器
+│   │   ├── cron/            # 定时任务
+│   │   ├── mcp/             # MCP 协议客户端
+│   │   ├── urlreader/       # URL 内容读取
+│   │   └── result/          # 工具结果格式化
+│   ├── provider/            # LLM Provider 适配层
 │   ├── config/              # 配置解析
 │   ├── handler/             # HTTP Handler（Agent/Provider/Tool/Skill/MCP/Chat/Auth）
-│   ├── model/               # 领域模型定义
-│   ├── provider/            # LLM Provider 适配层
-│   ├── seed/                # 初始化种子数据（默认工具和技能）
+│   ├── model/               # 领域模型定义（Agent/Plan/Thought/Reflection/Memory）
+│   ├── seed/                # 初始化种子数据（默认工具、技能和工具处理器注册）
 │   ├── skill/               # 技能加载器、运行器
 │   │   └── clawhub/         # ClawHub 市场客户端（下载/安装）
 │   ├── workspace/           # 统一工作空间管理（~/.go-agent/）
+│   ├── auth/                # 认证中间件
+│   ├── parser/              # 请求解析
 │   └── store/
 │       └── mysql/           # MySQL 数据访问实现
 ├── migrations/              # SQL 迁移脚本

@@ -1,17 +1,46 @@
-package agent
+package tool
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 )
 
-func TestToolRegistry_BuildTrackedTools(t *testing.T) {
-	registry := NewToolRegistry()
+type nopConvStore struct{}
+
+func (nopConvStore) CreateConversation(_ context.Context, _ *model.Conversation) error { return nil }
+func (nopConvStore) GetConversation(_ context.Context, _ int64) (*model.Conversation, error) {
+	return nil, nil
+}
+func (nopConvStore) GetConversationByUUID(_ context.Context, _ string) (*model.Conversation, error) {
+	return nil, nil
+}
+func (nopConvStore) ListConversations(_ context.Context, _ int64, _ string, _ model.ListQuery) ([]*model.Conversation, int64, error) {
+	return nil, 0, nil
+}
+func (nopConvStore) UpdateConversationTitle(_ context.Context, _ int64, _ string) error { return nil }
+func (nopConvStore) DeleteConversation(_ context.Context, _ int64) error                { return nil }
+func (nopConvStore) CreateMessage(_ context.Context, _ *model.Message) error            { return nil }
+func (nopConvStore) ListMessages(_ context.Context, _ int64, _ int) ([]model.Message, error) {
+	return nil, nil
+}
+func (nopConvStore) CreateExecutionStep(_ context.Context, _ *model.ExecutionStep) error { return nil }
+func (nopConvStore) UpdateStepsMessageID(_ context.Context, _, _ int64) error            { return nil }
+func (nopConvStore) ListExecutionSteps(_ context.Context, _ int64) ([]model.ExecutionStep, error) {
+	return nil, nil
+}
+func (nopConvStore) ListExecutionStepsByConversation(_ context.Context, _ int64) ([]model.ExecutionStep, error) {
+	return nil, nil
+}
+
+func TestRegistry_BuildTrackedTools(t *testing.T) {
+	registry := NewRegistry()
+	registry.LoadDefaults()
 
 	t.Run("builtin_tool", func(t *testing.T) {
-		tracker := NewStepTracker(newMockStore(), 1)
+		tracker := NewStepTracker(nopConvStore{}, 1)
 		toolDefs := []model.Tool{
 			{Name: "current_time", Description: "get time", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
@@ -32,7 +61,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 	})
 
 	t.Run("disabled_tool_skipped", func(t *testing.T) {
-		tracker := NewStepTracker(newMockStore(), 1)
+		tracker := NewStepTracker(nopConvStore{}, 1)
 		toolDefs := []model.Tool{
 			{Name: "current_time", HandlerType: model.HandlerBuiltin, Enabled: false},
 		}
@@ -43,7 +72,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 	})
 
 	t.Run("unknown_builtin_skipped", func(t *testing.T) {
-		tracker := NewStepTracker(newMockStore(), 1)
+		tracker := NewStepTracker(nopConvStore{}, 1)
 		toolDefs := []model.Tool{
 			{Name: "nonexistent_builtin", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
@@ -54,8 +83,7 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 	})
 
 	t.Run("tracked_tool_records_step", func(t *testing.T) {
-		ms := newMockStore()
-		tracker := NewStepTracker(ms, 100)
+		tracker := NewStepTracker(nopConvStore{}, 100)
 		toolDefs := []model.Tool{
 			{Name: "uuid_generator", Description: "gen uuid", HandlerType: model.HandlerBuiltin, Enabled: true},
 		}
@@ -81,7 +109,8 @@ func TestToolRegistry_BuildTrackedTools(t *testing.T) {
 }
 
 func TestBuiltinHandlers(t *testing.T) {
-	registry := NewToolRegistry()
+	registry := NewRegistry()
+	registry.LoadDefaults()
 	ctx := t.Context()
 
 	t.Run("base64_encode", func(t *testing.T) {

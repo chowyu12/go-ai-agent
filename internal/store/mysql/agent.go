@@ -202,30 +202,6 @@ func (s *MySQLStore) GetAgentSkills(ctx context.Context, agentID int64) ([]model
 	return scanSkills(rows)
 }
 
-func (s *MySQLStore) SetAgentChildren(ctx context.Context, agentID int64, childIDs []int64) error {
-	return s.setRelation(ctx, "agent_children", "parent_id", "child_id", agentID, childIDs)
-}
-
-func (s *MySQLStore) GetAgentChildren(ctx context.Context, agentID int64) ([]model.Agent, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT a.`+agentColumns+` FROM agents a INNER JOIN agent_children ac ON a.id = ac.child_id WHERE ac.parent_id = ?`, agentID,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var list []model.Agent
-	for rows.Next() {
-		a, err := scanAgent(rows)
-		if err != nil {
-			return nil, err
-		}
-		list = append(list, *a)
-	}
-	return list, rows.Err()
-}
-
 func (s *MySQLStore) setRelation(ctx context.Context, table, col1, col2 string, id int64, relIDs []int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

@@ -14,7 +14,8 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/browser"
+	"github.com/chowyu12/go-ai-agent/internal/tool"
+	"github.com/chowyu12/go-ai-agent/internal/tool/browser"
 	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/config"
 	"github.com/chowyu12/go-ai-agent/internal/handler"
@@ -55,7 +56,8 @@ func main() {
 	}
 	defer store.Close()
 
-	seed.Init(context.Background(), store)
+	registry := tool.NewRegistry()
+	seed.Init(context.Background(), store, registry)
 
 	if cfg.Browser.Visible {
 		browser.SetVisible(true)
@@ -70,8 +72,6 @@ func main() {
 	if cfg.Browser.Proxy != "" {
 		browser.SetProxy(cfg.Browser.Proxy)
 	}
-
-	registry := agentpkg.NewToolRegistry()
 	executor := agentpkg.NewExecutor(store, registry)
 
 	mux := http.NewServeMux()

@@ -1,9 +1,8 @@
-package agent
+package prompt
 
 import (
 	"bytes"
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -15,8 +14,8 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/parser"
 )
 
-func buildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatCompletionMessage, userMsg string, agentTools []model.Tool, subAgentTools []Tool, toolSkillMap map[string]string, files []*model.File) []openai.ChatCompletionMessage {
-	systemPrompt := buildSystemPrompt(ag, skills, agentTools, subAgentTools, toolSkillMap)
+func BuildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatCompletionMessage, userMsg string, agentTools []model.Tool, toolSkillMap map[string]string, files []*model.File) []openai.ChatCompletionMessage {
+	systemPrompt := BuildSystemPrompt(ag, skills, agentTools, toolSkillMap)
 
 	var messages []openai.ChatCompletionMessage
 	if systemPrompt != "" {
@@ -66,7 +65,7 @@ func buildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatC
 			{Type: openai.ChatMessagePartTypeText, Text: userText},
 		}
 		for _, img := range imageFiles {
-			part, err := imagePartForFile(img)
+			part, err := ImagePartForFile(img)
 			if err != nil {
 				log.WithError(err).WithField("file", img.Filename).Warn("[Execute] prepare image failed, skipping")
 				continue
@@ -87,7 +86,7 @@ func buildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatC
 	return messages
 }
 
-func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model.Tool, subAgentTools []Tool, toolSkillMap map[string]string) string {
+func BuildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model.Tool, toolSkillMap map[string]string) string {
 	l := log.WithField("agent", ag.Name)
 
 	var sb strings.Builder
@@ -110,7 +109,7 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 			break
 		}
 	}
-	hasTools := len(enabledTools) > 0 || len(subAgentTools) > 0
+	hasTools := len(enabledTools) > 0
 
 	if !hasSkillInstructions && !hasTools {
 		result := sb.String()
@@ -151,11 +150,6 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 			}
 			sb.WriteString(line + "\n")
 		}
-		for _, t := range subAgentTools {
-			desc := cmp.Or(t.Description(), "委托子Agent执行")
-			sb.WriteString(fmt.Sprintf("- **%s**: %s (子Agent)\n", t.Name(), desc))
-		}
-
 		strategies := []string{
 			"**意图识别**: 分析用户问题，判断是否与已有技能或工具的能力匹配",
 			"**工具优先**: 当问题可通过工具获得更准确或实时的结果时，必须调用工具，禁止仅凭内置知识推测",
@@ -173,99 +167,14 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, s))
 		}
 
-		l.WithFields(log.Fields{
-			"agent_tools": len(enabledTools),
-			"sub_agents":  len(subAgentTools),
-		}).Debug("[Prompt]  tool catalog injected")
+		l.WithField("agent_tools", len(enabledTools)).Debug("[Prompt]  tool catalog injected")
 	}
 
 	result := sb.String()
 	l.WithFields(log.Fields{
 		"total_len": len(result),
 		"skills":    len(skills),
-		"tools":     len(enabledTools) + len(subAgentTools),
+		"tools":     len(enabledTools),
 	}).Debug("[Prompt]  system prompt built")
-	return result
-}
-
-func buildLLMToolDefs(modelTools []model.Tool, subAgentTools []Tool, mcpTools []Tool, skillTools []Tool) []openai.Tool {
-	var result []openai.Tool
-
-	for _, mt := range modelTools {
-		if !mt.Enabled {
-			continue
-		}
-		fd := &openai.FunctionDefinition{
-			Name:        mt.Name,
-			Description: mt.Description,
-		}
-		if len(mt.FunctionDef) > 0 {
-			var def map[string]any
-			if json.Unmarshal(mt.FunctionDef, &def) == nil {
-				if desc, ok := def["description"].(string); ok && desc != "" {
-					fd.Description = desc
-				}
-				if params, ok := def["parameters"]; ok {
-					fd.Parameters = params
-				}
-			}
-		}
-		if fd.Parameters == nil {
-			fd.Parameters = map[string]any{
-				"type":       "object",
-				"properties": map[string]any{},
-			}
-		}
-		result = append(result, openai.Tool{Type: openai.ToolTypeFunction, Function: fd})
-	}
-
-	for _, t := range subAgentTools {
-		result = append(result, openai.Tool{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters: map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"input": map[string]any{
-							"type":        "string",
-							"description": "Task description to delegate to the sub-agent",
-						},
-					},
-					"required": []string{"input"},
-				},
-			},
-		})
-	}
-
-	for _, tools := range [][]Tool{mcpTools, skillTools} {
-		for _, t := range tools {
-			mt, ok := t.(*trackedTool)
-			if !ok {
-				continue
-			}
-			dt, ok := mt.baseTool.(*dynamicTool)
-			if !ok {
-				continue
-			}
-			params := dt.params
-			if params == nil {
-				params = map[string]any{
-					"type":       "object",
-					"properties": map[string]any{},
-				}
-			}
-			result = append(result, openai.Tool{
-				Type: openai.ToolTypeFunction,
-				Function: &openai.FunctionDefinition{
-					Name:        dt.toolName,
-					Description: dt.toolDesc,
-					Parameters:  params,
-				},
-			})
-		}
-	}
-
 	return result
 }

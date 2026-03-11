@@ -16,6 +16,7 @@ import (
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
+	"github.com/chowyu12/go-ai-agent/internal/tool"
 )
 
 // ==================== Mock Store ====================
@@ -36,7 +37,6 @@ type mockStore struct {
 
 	agentToolIDs  map[int64][]int64
 	agentSkillIDs map[int64][]int64
-	agentChildIDs map[int64][]int64
 	skillToolIDs  map[int64][]int64
 
 	getConvByUUIDErr error
@@ -55,7 +55,6 @@ func newMockStore() *mockStore {
 		execSteps:     make(map[int64][]model.ExecutionStep),
 		agentToolIDs:  make(map[int64][]int64),
 		agentSkillIDs: make(map[int64][]int64),
-		agentChildIDs: make(map[int64][]int64),
 		skillToolIDs:  make(map[int64][]int64),
 	}
 }
@@ -171,24 +170,6 @@ func (s *mockStore) GetAgentSkills(_ context.Context, agentID int64) ([]model.Sk
 	}
 	return result, nil
 }
-func (s *mockStore) SetAgentChildren(_ context.Context, agentID int64, childIDs []int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.agentChildIDs[agentID] = childIDs
-	return nil
-}
-func (s *mockStore) GetAgentChildren(_ context.Context, agentID int64) ([]model.Agent, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var result []model.Agent
-	for _, id := range s.agentChildIDs[agentID] {
-		if a, ok := s.agents[id]; ok {
-			result = append(result, *a)
-		}
-	}
-	return result, nil
-}
-
 func (s *mockStore) CreateTool(_ context.Context, t *model.Tool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -621,12 +602,26 @@ func seedToolForAgent(t *testing.T, s *mockStore, agentID int64, name, desc stri
 	return tool
 }
 
-func newTestExecutor(s *mockStore, registry *ToolRegistry, mockLLM *mockLLMProvider) *Executor {
+func newTestExecutor(s *mockStore, registry *tool.Registry, mockLLM *mockLLMProvider) *Executor {
 	return NewExecutor(s, registry, WithProviderFactory(
 		func(_ *model.Provider, _ string) (provider.LLMProvider, error) {
 			return mockLLM, nil
 		},
 	))
+}
+
+// agenticResponses builds mock LLM responses for the agentic flow (1-step plan).
+// Order: [plan, think, actResps..., stepReflect, finalReflect, memoryExtractBuffer]
+func agenticResponses(actResps ...openai.ChatCompletionResponse) []openai.ChatCompletionResponse {
+	filler := textResp("{}")
+	var all []openai.ChatCompletionResponse
+	all = append(all, filler)          // plan generation → fallback 1-step plan
+	all = append(all, filler)          // think → default thought
+	all = append(all, actResps...)     // act phase
+	all = append(all, filler)          // reflect on step → default reflection
+	all = append(all, filler)          // reflect on plan (final)
+	all = append(all, filler, filler)  // buffer for async memory extract goroutine
+	return all
 }
 
 func textResp(content string) openai.ChatCompletionResponse {

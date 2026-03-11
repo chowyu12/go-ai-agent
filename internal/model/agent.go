@@ -21,7 +21,6 @@ type Agent struct {
 
 	Tools      []Tool      `json:"tools,omitzero"`
 	Skills     []Skill     `json:"skills,omitzero"`
-	Children   []Agent     `json:"children,omitzero"`
 	MCPServers []MCPServer `json:"mcp_servers,omitzero"`
 }
 
@@ -61,7 +60,6 @@ type CreateAgentReq struct {
 	MaxIterations int     `json:"max_iterations"`
 	ToolIDs       []int64 `json:"tool_ids,omitzero"`
 	SkillIDs      []int64 `json:"skill_ids,omitzero"`
-	ChildIDs      []int64 `json:"child_ids,omitzero"`
 	MCPServerIDs  []int64 `json:"mcp_server_ids,omitzero"`
 }
 
@@ -78,6 +76,5 @@ type UpdateAgentReq struct {
 	MaxIterations *int     `json:"max_iterations,omitzero"`
 	ToolIDs       []int64  `json:"tool_ids,omitzero"`
 	SkillIDs      []int64  `json:"skill_ids,omitzero"`
-	ChildIDs      []int64  `json:"child_ids,omitzero"`
 	MCPServerIDs  []int64  `json:"mcp_server_ids,omitzero"`
 }

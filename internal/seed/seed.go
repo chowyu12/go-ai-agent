@@ -12,13 +12,15 @@ import (
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/store"
+	"github.com/chowyu12/go-ai-agent/internal/tool"
 	"github.com/chowyu12/go-ai-agent/internal/workspace"
 )
 
-func Init(ctx context.Context, s store.Store) {
+func Init(ctx context.Context, s store.Store, registry *tool.Registry) {
 	seedTools(ctx, s)
 	seedSkillDirs(ctx, s)
-	log.Info("seed data initialized")
+	registry.LoadDefaults()
+	log.Info("seed data initialized (DB + tool registry)")
 }
 
 func seedTools(ctx context.Context, s store.Store) {

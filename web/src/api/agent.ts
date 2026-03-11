@@ -16,7 +16,6 @@ export interface Agent {
   token: string
   tools?: any[]
   skills?: any[]
-  children?: any[]
   created_at: string
   updated_at: string
 }
@@ -34,7 +33,6 @@ export interface CreateAgentReq {
   max_iterations?: number
   tool_ids?: number[]
   skill_ids?: number[]
-  child_ids?: number[]
 }
 
 export const agentApi = {

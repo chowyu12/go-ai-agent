@@ -36,7 +36,12 @@ const (
 	StepLLMCall    StepType = "llm_call"
 	StepToolCall   StepType = "tool_call"
 	StepAgentCall  StepType = "agent_call"
-	StepSkillMatch StepType = "skill_match"
+	StepSkillMatch   StepType = "skill_match"
+	StepPlanning     StepType = "planning"
+	StepThinking     StepType = "thinking"
+	StepReflection   StepType = "reflection"
+	StepMemoryRecall StepType = "memory_recall"
+	StepMemoryStore  StepType = "memory_store"
 )
 
 type StepStatus string

@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"context"
-	"fmt"
 	"strings"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -35,45 +33,7 @@ func applyModelCaps(req *openai.ChatCompletionRequest, ag *model.Agent, l *log.E
 	}
 }
 
-func (e *Executor) recordUsedSkillSteps(ctx context.Context, skills []model.Skill, toolSkillMap map[string]string, calledTools map[string]bool, tracker *StepTracker) {
-	usedSkills := make(map[string]bool)
-	for toolName := range calledTools {
-		if skillName, ok := toolSkillMap[toolName]; ok {
-			usedSkills[skillName] = true
-		}
-	}
-
-	for _, sk := range skills {
-		if !usedSkills[sk.Name] {
-			continue
-		}
-
-		var calledToolNames []string
-		for toolName, skillName := range toolSkillMap {
-			if skillName == sk.Name && calledTools[toolName] {
-				calledToolNames = append(calledToolNames, toolName)
-			}
-		}
-
-		input := sk.Instruction
-		if input == "" {
-			input = "(no instruction)"
-		}
-		output := fmt.Sprintf("used %d tools: %s", len(calledToolNames), strings.Join(calledToolNames, ", "))
-
-		tracker.RecordStep(ctx, model.StepSkillMatch, sk.Name, input, output, model.StepSuccess, "", 0, 0, &model.StepMetadata{
-			SkillName:  sk.Name,
-			SkillTools: calledToolNames,
-		})
-
-		log.WithFields(log.Fields{
-			"skill":      sk.Name,
-			"used_tools": calledToolNames,
-		}).Info("[Skill] skill used")
-	}
-}
-
-func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Skill, subAgentTools []Tool) {
+func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Skill) {
 	toolNames := make([]string, 0, len(agentTools))
 	for _, t := range agentTools {
 		toolNames = append(toolNames, t.Name)
@@ -82,14 +42,9 @@ func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Sk
 	for _, s := range skills {
 		skillNames = append(skillNames, s.Name)
 	}
-	subNames := make([]string, 0, len(subAgentTools))
-	for _, s := range subAgentTools {
-		subNames = append(subNames, s.Name())
-	}
 	l.WithFields(log.Fields{
-		"tools":      toolNames,
-		"skills":     skillNames,
-		"sub_agents": subNames,
+		"tools":  toolNames,
+		"skills": skillNames,
 	}).Info("[Execute]    resources loaded")
 
 	for _, sk := range skills {

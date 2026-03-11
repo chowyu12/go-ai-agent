@@ -1,4 +1,4 @@
-package agent
+package memory
 
 import (
 	"context"
@@ -14,16 +14,16 @@ import (
 	"github.com/chowyu12/go-ai-agent/internal/store"
 )
 
-type MemoryManager struct {
+type Manager struct {
 	store store.ConversationStore
 	files store.FileStore
 }
 
-func NewMemoryManager(convStore store.ConversationStore, fileStore store.FileStore) *MemoryManager {
-	return &MemoryManager{store: convStore, files: fileStore}
+func NewManager(convStore store.ConversationStore, fileStore store.FileStore) *Manager {
+	return &Manager{store: convStore, files: fileStore}
 }
 
-func (m *MemoryManager) GetOrCreateConversation(ctx context.Context, conversationUUID string, agentID int64, userID string) (*model.Conversation, error) {
+func (m *Manager) GetOrCreateConversation(ctx context.Context, conversationUUID string, agentID int64, userID string) (*model.Conversation, error) {
 	if conversationUUID != "" {
 		conv, err := m.store.GetConversationByUUID(ctx, conversationUUID)
 		if err == nil {
@@ -47,7 +47,7 @@ func (m *MemoryManager) GetOrCreateConversation(ctx context.Context, conversatio
 	return conv, nil
 }
 
-func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, limit int) ([]openai.ChatCompletionMessage, error) {
+func (m *Manager) LoadHistory(ctx context.Context, conversationID int64, limit int) ([]openai.ChatCompletionMessage, error) {
 	msgs, err := m.store.ListMessages(ctx, conversationID, limit)
 	if err != nil {
 		return nil, err
@@ -77,7 +77,7 @@ func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, l
 	return result, nil
 }
 
-func (m *MemoryManager) SaveUserMessage(ctx context.Context, conversationID int64, content string, files []*model.File) (int64, error) {
+func (m *Manager) SaveUserMessage(ctx context.Context, conversationID int64, content string, files []*model.File) (int64, error) {
 	msgID, err := m.saveMessage(ctx, conversationID, "user", content, 0)
 	if err != nil {
 		return 0, err
@@ -86,11 +86,11 @@ func (m *MemoryManager) SaveUserMessage(ctx context.Context, conversationID int6
 	return msgID, nil
 }
 
-func (m *MemoryManager) SaveAssistantMessage(ctx context.Context, conversationID int64, content string, tokensUsed int) (int64, error) {
+func (m *Manager) SaveAssistantMessage(ctx context.Context, conversationID int64, content string, tokensUsed int) (int64, error) {
 	return m.saveMessage(ctx, conversationID, "assistant", content, tokensUsed)
 }
 
-func (m *MemoryManager) saveMessage(ctx context.Context, conversationID int64, role, content string, tokensUsed int) (int64, error) {
+func (m *Manager) saveMessage(ctx context.Context, conversationID int64, role, content string, tokensUsed int) (int64, error) {
 	msg := &model.Message{
 		ConversationID: conversationID,
 		Role:           role,
@@ -103,7 +103,7 @@ func (m *MemoryManager) saveMessage(ctx context.Context, conversationID int64, r
 	return msg.ID, nil
 }
 
-func (m *MemoryManager) linkFiles(ctx context.Context, files []*model.File, conversationID, messageID int64) {
+func (m *Manager) linkFiles(ctx context.Context, files []*model.File, conversationID, messageID int64) {
 	for _, f := range files {
 		if f.ID == 0 {
 			continue
@@ -114,7 +114,7 @@ func (m *MemoryManager) linkFiles(ctx context.Context, files []*model.File, conv
 	}
 }
 
-func (m *MemoryManager) AutoSetTitle(ctx context.Context, conversationID int64, userMessage string) {
+func (m *Manager) AutoSetTitle(ctx context.Context, conversationID int64, userMessage string) {
 	title := userMessage
 	rs := []rune(title)
 	if len(rs) > 50 {

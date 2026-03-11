@@ -1,8 +1,9 @@
-package agent
+package tool
 
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,8 +57,8 @@ func (t *StepTracker) RecordStep(ctx context.Context, stepType model.StepType, n
 		StepOrder:      order,
 		StepType:       stepType,
 		Name:           name,
-		Input:          truncate(input, 65000),
-		Output:         truncate(output, 65000),
+		Input:          Truncate(input, 65000),
+		Output:         Truncate(output, 65000),
 		Status:         status,
 		Error:          stepErr,
 		DurationMs:     int(duration.Milliseconds()),
@@ -93,9 +94,17 @@ func (t *StepTracker) Steps() []model.ExecutionStep {
 	return result
 }
 
-func truncate(s string, maxLen int) string {
+func Truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen] + "...[truncated]"
+}
+
+func TruncateLog(s string, maxLen int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
