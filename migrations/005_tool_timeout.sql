@@ -1,1 +1,0 @@
-ALTER TABLE `tools` ADD COLUMN `timeout` INT UNSIGNED NOT NULL DEFAULT 30 COMMENT '执行超时(秒)' AFTER `enabled`;

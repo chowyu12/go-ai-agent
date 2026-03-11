@@ -351,8 +351,6 @@ cd go-ai-agent
 ```bash
 mysql -u root -p -e "CREATE DATABASE go_ai_agent DEFAULT CHARSET utf8mb4"
 mysql -u root -p go_ai_agent < migrations/001_init.sql
-mysql -u root -p go_ai_agent < migrations/002_execution_steps.sql
-mysql -u root -p go_ai_agent < migrations/003_users.sql
 ```
 
 ### 3. 修改配置
