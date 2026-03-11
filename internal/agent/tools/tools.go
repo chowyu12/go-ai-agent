@@ -5,6 +5,7 @@ import (
 
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools/browser"
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools/builtin"
+	"github.com/chowyu12/go-ai-agent/internal/agent/tools/codeinterp"
 	cronTool "github.com/chowyu12/go-ai-agent/internal/agent/tools/cron"
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools/crontab"
 	"github.com/chowyu12/go-ai-agent/internal/agent/tools/result"
@@ -21,5 +22,6 @@ func DefaultBuiltins() map[string]func(context.Context, string) (string, error) 
 	m["browser"] = browser.Handler
 	m["cron_parser"] = cronTool.Handler
 	m["crontab"] = crontab.Handler
+	m["code_interpreter"] = codeinterp.Handler
 	return m
 }

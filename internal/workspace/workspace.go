@@ -25,6 +25,7 @@ func Init(dir string) error {
 		"cron/scripts",
 		"cron/logs",
 		"tmp",
+		"sandbox",
 	} {
 		if err := os.MkdirAll(filepath.Join(root, sub), 0o755); err != nil {
 			return fmt.Errorf("create workspace dir %q: %w", sub, err)
@@ -82,4 +83,11 @@ func Tmp() string {
 		return ""
 	}
 	return filepath.Join(root, "tmp")
+}
+
+func Sandbox() string {
+	if root == "" {
+		return ""
+	}
+	return filepath.Join(root, "sandbox")
 }

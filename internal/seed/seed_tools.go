@@ -420,6 +420,41 @@ func defaultTools() []model.Tool {
 				Timeout: 10,
 			}),
 		},
+		{
+			Name: "code_interpreter",
+			Description: "代码解释器，支持编写并执行 Python/JavaScript/Shell 代码。" +
+				"Agent 传入语言类型和代码，工具自动在沙箱目录中创建文件并执行，返回 stdout/stderr 结果。" +
+				"适用于数据处理、数学计算、文件生成、API 调试、格式转换等场景。",
+			HandlerType: model.HandlerBuiltin,
+			Enabled:     true,
+			Timeout:     120,
+			FunctionDef: mustJSON(map[string]any{
+				"name": "code_interpreter",
+				"description": "Execute code in a sandboxed environment. Supports Python, JavaScript, and Shell. " +
+					"Write code to solve problems like data processing, math computation, file generation, API testing, and format conversion. " +
+					"The code is saved to a sandbox directory and executed with the appropriate runtime. " +
+					"Returns stdout, stderr, exit code, and execution duration.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"language": map[string]any{
+							"type":        "string",
+							"enum":        []string{"python", "javascript", "shell"},
+							"description": "Programming language: python (python3), javascript (node), or shell (sh)",
+						},
+						"code": map[string]any{
+							"type":        "string",
+							"description": "The source code to execute",
+						},
+						"timeout": map[string]any{
+							"type":        "integer",
+							"description": "Execution timeout in seconds (default: 60 for python/js, 30 for shell, max: 120)",
+						},
+					},
+					"required": []string{"language", "code"},
+				},
+			}),
+		},
 	}
 }
 
