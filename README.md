@@ -114,157 +114,142 @@
 ## 系统架构
 
 ```mermaid
-graph TB
-    subgraph Client [客户端]
-        WebUI["Vue 3 + Element Plus<br/>管理后台 / 对话 Playground"]
-        API["REST / SSE API<br/>后端服务集成"]
+flowchart TB
+    subgraph client [客户端]
+        WebUI[Web UI - Vue 3]
+        RestAPI[REST / SSE API]
     end
 
-    subgraph Gateway [HTTP 网关]
-        Middleware["中间件链<br/>Logger → CORS → JWT Auth"]
-        Router["路由分发<br/>ServeMux"]
+    subgraph gateway [HTTP 网关]
+        MW[Logger - CORS - JWT Auth]
+        Router[ServeMux 路由]
     end
 
-    subgraph Handlers [Handler 层]
-        ChatH["ChatHandler<br/>对话 / 流式"]
-        AgentH["AgentHandler<br/>Agent CRUD"]
-        ToolH["ToolHandler<br/>工具 CRUD"]
-        SkillH["SkillHandler<br/>技能管理 / ClawHub"]
-        ProvH["ProviderHandler<br/>供应商 CRUD"]
-        AuthH["AuthHandler<br/>登录 / 注册"]
-        MCPH["MCPHandler<br/>MCP 服务管理"]
-        FileH["FileHandler<br/>文件上传"]
+    subgraph handlers [Handler 层]
+        ChatH[ChatHandler]
+        AgentH[AgentHandler]
+        ToolH[ToolHandler]
+        SkillH[SkillHandler]
+        ProvH[ProviderHandler]
+        OtherH[Auth / MCP / File]
     end
 
-    subgraph Core [Agent 执行引擎]
-        Executor["Executor<br/>prepare → execute/stream"]
-        Prompt["PromptBuilder<br/>System Prompt + 消息构建"]
-        ToolReg["ToolRegistry<br/>工具注册与调度"]
-        Memory["MemoryManager<br/>会话 / 历史管理"]
-        Tracker["StepTracker<br/>执行步骤追踪"]
-        SubAgent["SubAgentBuilder<br/>子 Agent 委派"]
+    subgraph engine [Agent 执行引擎]
+        Executor[Executor]
+        Prompt[PromptBuilder]
+        ToolReg[ToolRegistry]
+        Memory[MemoryManager]
+        Tracker[StepTracker]
     end
 
-    subgraph Tools [工具层]
-        Builtin["内置工具<br/>time / uuid / calc / base64 / hash"]
-        BrowserT["Browser 自动化<br/>33 个 action"]
-        CmdT["命令执行<br/>Shell / Script"]
-        HttpT["HTTP 工具<br/>天气 / IP / 自定义"]
-        CronT["Cron 工具<br/>表达式解析 / crontab"]
-        UrlT["URL Reader<br/>网页内容读取"]
-        McpT["MCP Client<br/>外部工具协议"]
+    subgraph tools [工具层]
+        Builtin[内置工具 - time/uuid/calc/hash]
+        BrowserT[Browser - 33 actions]
+        CmdT[Shell 命令执行]
+        HttpT[HTTP 调用]
+        McpT[MCP Client]
+        OtherT[Cron / URL Reader]
     end
 
-    subgraph SkillSys [技能系统]
-        Loader["SkillLoader<br/>解析 manifest / SKILL.md"]
-        Runner["SkillRunner<br/>node / python 子进程"]
-        ClawHub["ClawHub Client<br/>技能市场下载"]
+    subgraph skills [技能系统]
+        Loader[SkillLoader]
+        Runner[SkillRunner - JS/Python]
+        ClawHubC[ClawHub Client]
     end
 
-    subgraph Provider [LLM 供应商]
-        Factory["ProviderFactory<br/>OpenAI 兼容适配"]
-        OpenAI["OpenAI"]
-        Qwen["Qwen 通义"]
-        Kimi["Kimi"]
-        OpenRouter["OpenRouter"]
-        NewAPI["NewAPI"]
+    subgraph llm [LLM 供应商]
+        Factory[ProviderFactory]
+        Models[OpenAI / Qwen / Kimi / OpenRouter]
     end
 
-    subgraph Storage [持久化层]
-        Store["Store 接口"]
-        MySQL["MySQL 8.0"]
-        Workspace["Workspace<br/>~/.go-agent/<br/>skills / uploads / cron / tmp"]
+    subgraph storage [持久化]
+        Store[(MySQL)]
+        WS[Workspace ~/.go-agent/]
     end
 
-    WebUI --> Middleware
-    API --> Middleware
-    Middleware --> Router
-    Router --> ChatH & AgentH & ToolH & SkillH & ProvH & AuthH & MCPH & FileH
+    WebUI --> MW
+    RestAPI --> MW
+    MW --> Router
+
+    Router --> ChatH
+    Router --> AgentH
+    Router --> ToolH
+    Router --> SkillH
+    Router --> ProvH
+    Router --> OtherH
 
     ChatH --> Executor
     Executor --> Prompt
     Executor --> ToolReg
     Executor --> Memory
     Executor --> Tracker
-    Executor --> SubAgent
 
-    ToolReg --> Builtin & BrowserT & CmdT & HttpT & CronT & UrlT & McpT
+    ToolReg --> Builtin
+    ToolReg --> BrowserT
+    ToolReg --> CmdT
+    ToolReg --> HttpT
+    ToolReg --> McpT
+    ToolReg --> OtherT
 
-    Executor --> SkillSys
-    SkillH --> Loader & ClawHub
-    Loader --> Workspace
-    Runner --> Workspace
+    Executor --> Loader
+    Executor --> Runner
+    SkillH --> ClawHubC
 
     Executor --> Factory
-    Factory --> OpenAI & Qwen & Kimi & OpenRouter & NewAPI
+    Factory --> Models
 
-    ChatH & AgentH & ToolH & SkillH & ProvH & AuthH & MCPH --> Store
-    Memory & Tracker --> Store
-    Store --> MySQL
+    ChatH --> Store
+    AgentH --> Store
+    ToolH --> Store
+    SkillH --> Store
+    Memory --> Store
+    Tracker --> Store
+    Loader --> WS
+    Runner --> WS
+    ClawHubC --> WS
 ```
 
 ## Agent 执行流程
 
 ```mermaid
 sequenceDiagram
-    participant C as 客户端
+    participant C as Client
     participant H as ChatHandler
     participant E as Executor
-    participant P as PromptBuilder
     participant LLM as LLM Provider
-    participant T as Tool / Skill
+    participant T as Tools
     participant DB as MySQL
 
-    C->>H: POST /chat/stream<br/>{agent_id, message, conversation_id?}
-    H->>E: ExecuteStream(ctx, req, chunkHandler)
+    C->>H: POST /chat/stream
 
-    rect rgb(240, 248, 255)
-        Note over E: Phase 1: prepare — 构建执行上下文
-        E->>DB: GetAgentByUUID + GetProvider
-        E->>DB: GetAgentTools + GetAgentSkills
-        E->>DB: GetOrCreateConversation
-        E->>E: connectMCPServers
-        E->>E: buildSubAgentTools
-        E->>E: buildSkillManifestTools
-        E->>E: loadRequestFiles
-    end
+    Note over E: Phase 1 - prepare
+    H->>E: ExecuteStream
+    E->>DB: Load Agent + Provider + Tools + Skills
+    E->>DB: GetOrCreate Conversation
+    E->>E: Connect MCP / Build SubAgent Tools / Load Files
 
-    rect rgb(255, 248, 240)
-        Note over E: Phase 2: 构建消息
-        E->>P: buildSystemPrompt<br/>(agent 指令 + 技能 SKILL.md + 工具提示)
-        E->>P: buildMessages<br/>(system + history + user + files)
-        E->>P: buildLLMToolDefs<br/>(agent 工具 + MCP + 子Agent + 技能工具)
-    end
+    Note over E: Phase 2 - Build Messages
+    E->>E: System Prompt with skill instructions
+    E->>E: History messages + User message + Files
+    E->>E: Build LLM tool definitions
 
-    rect rgb(240, 255, 240)
-        Note over E: Phase 3: 工具调用循环 (max iterations)
-        loop 直到 LLM 不再调用工具
-            E->>LLM: CreateChatCompletionStream(messages, tools)
-            LLM-->>E: Stream Delta (文本 + tool_calls)
-            E-->>C: SSE: {delta: "文本片段"}
-
-            alt LLM 返回 tool_calls
-                loop 每个 tool_call
-                    E->>T: tool.Call(ctx, args)
-                    T-->>E: result (文本 / 文件 / JSON)
-                    E-->>C: SSE: {step: {type: "tool_call", name, input, output}}
-                end
-                Note over E: 将工具结果追加到 messages,<br/>进入下一轮循环
-            else LLM 返回纯文本
-                Note over E: 结束循环
-            end
+    Note over E: Phase 3 - Tool Calling Loop
+    loop Until LLM stops calling tools
+        E->>LLM: Stream completion request
+        LLM-->>E: Text delta + tool_calls
+        E-->>C: SSE delta text
+        opt If tool_calls present
+            E->>T: Execute each tool
+            T-->>E: Tool results
+            E-->>C: SSE step events
+            Note over E: Append results to messages
         end
     end
 
-    rect rgb(248, 240, 255)
-        Note over E: Phase 4: 结果持久化
-        E->>DB: SaveUserMessage
-        E->>DB: SaveAssistantMessage
-        E->>DB: RecordStep (LLM Call)
-        E->>DB: recordUsedSkillSteps
-    end
-
-    E-->>C: SSE: {done: true, steps: [...]}
+    Note over E: Phase 4 - Persist Results
+    E->>DB: Save user + assistant messages
+    E->>DB: Record execution steps
+    E-->>C: SSE done + final steps
 ```
 
 ## 项目结构
