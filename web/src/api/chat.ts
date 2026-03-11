@@ -118,10 +118,17 @@ export function streamChat(
   onError: (err: string) => void,
 ) {
   const controller = new AbortController()
-  const clientTimeout = setTimeout(() => {
-    controller.abort()
-    onError('请求超时 (150s)')
-  }, 150_000)
+  const IDLE_TIMEOUT_MS = 300_000
+  let idleTimer: ReturnType<typeof setTimeout> | null = null
+
+  const resetIdleTimer = () => {
+    if (idleTimer) clearTimeout(idleTimer)
+    idleTimer = setTimeout(() => {
+      controller.abort()
+      onError('请求空闲超时 (300s 无数据)')
+    }, IDLE_TIMEOUT_MS)
+  }
+  resetIdleTimer()
 
   const token = localStorage.getItem('token') || ''
   fetch('/api/v1/chat/stream', {
@@ -146,6 +153,7 @@ export function streamChat(
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
+      resetIdleTimer()
 
       buffer += decoder.decode(value, { stream: true })
       const lines = buffer.split('\n')
@@ -186,7 +194,7 @@ export function streamChat(
       onError(err.message)
     }
   }).finally(() => {
-    clearTimeout(clientTimeout)
+    if (idleTimer) clearTimeout(idleTimer)
   })
 
   return controller

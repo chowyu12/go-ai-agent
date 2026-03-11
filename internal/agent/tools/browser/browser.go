@@ -1,6 +1,7 @@
 package browser
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -12,6 +13,8 @@ import (
 	"sync"
 
 	"github.com/chowyu12/go-ai-agent/internal/workspace"
+	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/runtime"
 	"github.com/chromedp/chromedp"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
@@ -38,10 +41,40 @@ type browserParams struct {
 	WaitText     string      `json:"wait_text"`
 	WaitSelector string      `json:"wait_selector"`
 	WaitURL      string      `json:"wait_url"`
+	WaitFn       string      `json:"wait_fn"`
+	WaitLoad     string      `json:"wait_load"`
 	Accept       *bool       `json:"accept"`
 	PromptText   string      `json:"prompt_text"`
 	Paths        []string    `json:"paths"`
 	ScrollY      int         `json:"scroll_y"`
+
+	// Console/Network monitoring
+	Level  string `json:"level"`
+	Filter string `json:"filter"`
+	Clear  bool   `json:"clear"`
+
+	// Cookie management
+	Operation   string `json:"operation"`
+	CookieName  string `json:"cookie_name"`
+	CookieValue string `json:"cookie_value"`
+	CookieURL   string `json:"cookie_url"`
+	CookieDomain string `json:"cookie_domain"`
+
+	// Storage management
+	StorageType string `json:"storage_type"`
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+
+	// Press key
+	KeyName string `json:"key_name"`
+
+	// Resize viewport
+	Width  int `json:"width"`
+	Height int `json:"height"`
+
+	// Device emulation
+	Device      string `json:"device"`
+	ColorScheme string `json:"color_scheme"`
 }
 
 type formField struct {
@@ -68,6 +101,11 @@ type browserManager struct {
 	started     bool
 	tmpDir      string
 	visible     bool
+	monitor     *eventMonitor
+	viewWidth   int
+	viewHeight  int
+	userAgent   string
+	proxy       string
 }
 
 var defaultBrowser = &browserManager{
@@ -79,6 +117,25 @@ func SetVisible(v bool) {
 	defaultBrowser.mu.Lock()
 	defer defaultBrowser.mu.Unlock()
 	defaultBrowser.visible = v
+}
+
+func SetViewport(width, height int) {
+	defaultBrowser.mu.Lock()
+	defer defaultBrowser.mu.Unlock()
+	defaultBrowser.viewWidth = width
+	defaultBrowser.viewHeight = height
+}
+
+func SetUserAgent(ua string) {
+	defaultBrowser.mu.Lock()
+	defer defaultBrowser.mu.Unlock()
+	defaultBrowser.userAgent = ua
+}
+
+func SetProxy(proxy string) {
+	defaultBrowser.mu.Lock()
+	defer defaultBrowser.mu.Unlock()
+	defaultBrowser.proxy = proxy
 }
 
 func Handler(ctx context.Context, args string) (string, error) {
@@ -139,6 +196,32 @@ func Handler(ctx context.Context, args string) (string, error) {
 		return bm.actionOpenTab(p)
 	case "close_tab":
 		return bm.actionCloseTab(p)
+	case "console":
+		return bm.actionConsole(p)
+	case "network":
+		return bm.actionNetwork(p)
+	case "cookies":
+		return bm.actionCookies(ctx, p)
+	case "storage":
+		return bm.actionStorage(ctx, p)
+	case "press":
+		return bm.actionPress(ctx, p)
+	case "back":
+		return bm.actionBack(ctx, p)
+	case "forward":
+		return bm.actionForward(ctx, p)
+	case "reload":
+		return bm.actionReload(ctx, p)
+	case "extract_table":
+		return bm.actionExtractTable(ctx, p)
+	case "resize":
+		return bm.actionResize(ctx, p)
+	case "set_device":
+		return bm.actionSetDevice(ctx, p)
+	case "set_media":
+		return bm.actionSetMedia(ctx, p)
+	case "highlight":
+		return bm.actionHighlight(ctx, p)
 	default:
 		return "", fmt.Errorf("unknown action: %s", p.Action)
 	}
@@ -164,15 +247,22 @@ func (bm *browserManager) ensureStarted() error {
 
 	headless := !bm.visible
 
+	w := cmp.Or(bm.viewWidth, 1280)
+	h := cmp.Or(bm.viewHeight, 720)
+	ua := cmp.Or(bm.userAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
 	opts := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.Flag("headless", headless),
 		chromedp.Flag("disable-gpu", headless),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
-		chromedp.Flag("disable-background-networking", true),
-		chromedp.WindowSize(1280, 720),
-		chromedp.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"),
+		chromedp.Flag("disable-background-networking", false),
+		chromedp.WindowSize(w, h),
+		chromedp.UserAgent(ua),
 	)
+	if bm.proxy != "" {
+		opts = append(opts, chromedp.ProxyServer(bm.proxy))
+	}
 
 	if bm.visible {
 		log.Info("[Browser] starting in visible mode (non-headless)")
@@ -185,13 +275,20 @@ func (bm *browserManager) ensureStarted() error {
 	tabCtx, tabCancel := chromedp.NewContext(allocCtx,
 		chromedp.WithErrorf(log.Errorf),
 	)
-	if err := chromedp.Run(tabCtx, chromedp.Navigate("about:blank")); err != nil {
+
+	if err := chromedp.Run(tabCtx,
+		network.Enable(),
+		runtime.Enable(),
+		chromedp.Navigate("about:blank"),
+	); err != nil {
 		tabCancel()
 		allocCancel()
 		bm.tmpDir = ""
 		os.RemoveAll(tmpDir)
 		return fmt.Errorf("init browser: %w", err)
 	}
+
+	bm.setupMonitor(tabCtx)
 
 	tabID := uuid.New().String()[:8]
 	bm.tabs[tabID] = &tabInfo{
@@ -228,6 +325,7 @@ func (bm *browserManager) closeBrowser() (string, error) {
 	bm.activeTab = ""
 	bm.started = false
 	bm.tmpDir = ""
+	bm.monitor = nil
 
 	log.Info("[Browser] closed")
 	return browserJSON("ok", true, "message", "browser closed"), nil

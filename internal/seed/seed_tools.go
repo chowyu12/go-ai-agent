@@ -390,48 +390,11 @@ func defaultTools() []model.Tool {
 		},
 		{
 			Name:        "browser",
-			Description: "浏览器控制工具，支持网页导航、截图、元素快照与交互、表单填充等操作。先用 snapshot 获取页面元素引用，再通过 ref 执行点击、输入等操作。",
+			Description: "浏览器控制工具，支持网页导航、截图、元素快照与交互、表单填充、Cookie/Storage管理、Console/Network监控、设备仿真等操作。先用 snapshot 获取页面元素引用，再通过 ref 执行点击、输入等操作。",
 			HandlerType: model.HandlerBuiltin,
 			Enabled:     true,
 			Timeout:     120,
-			FunctionDef: mustJSON(map[string]any{
-				"name":        "browser",
-				"description": "Browser automation tool. Use 'snapshot' to see interactive elements with refs, then use refs for click/type/etc.",
-				"parameters": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"action": map[string]any{
-							"type":        "string",
-							"enum":        []string{"navigate", "screenshot", "snapshot", "get_text", "evaluate", "pdf", "click", "type", "hover", "drag", "select", "fill_form", "scroll", "upload", "wait", "dialog", "tabs", "open_tab", "close_tab", "close"},
-							"description": "Action to perform",
-						},
-						"url":           map[string]any{"type": "string", "description": "URL for navigate/open_tab"},
-						"ref":           map[string]any{"type": "string", "description": "Element ref from snapshot (e.g. 'e1')"},
-						"text":          map[string]any{"type": "string", "description": "Text to type"},
-						"expression":    map[string]any{"type": "string", "description": "JavaScript expression for evaluate"},
-						"selector":      map[string]any{"type": "string", "description": "CSS selector (alternative to ref)"},
-						"full_page":     map[string]any{"type": "boolean", "description": "Full page screenshot"},
-						"submit":        map[string]any{"type": "boolean", "description": "Press Enter after typing"},
-						"slowly":        map[string]any{"type": "boolean", "description": "Type character by character"},
-						"button":        map[string]any{"type": "string", "enum": []string{"left", "right", "middle"}, "description": "Mouse button"},
-						"double_click":  map[string]any{"type": "boolean", "description": "Double-click"},
-						"start_ref":     map[string]any{"type": "string", "description": "Drag start element ref"},
-						"end_ref":       map[string]any{"type": "string", "description": "Drag end element ref"},
-						"values":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Select option values"},
-						"fields":        map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"ref": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}, "type": map[string]any{"type": "string"}}}, "description": "Form fields [{ref,value,type}]"},
-						"target_id":     map[string]any{"type": "string", "description": "Tab ID from tabs action"},
-						"wait_time":     map[string]any{"type": "integer", "description": "Wait milliseconds"},
-						"wait_text":     map[string]any{"type": "string", "description": "Wait for text to appear"},
-						"wait_selector": map[string]any{"type": "string", "description": "Wait for CSS selector to match"},
-						"wait_url":      map[string]any{"type": "string", "description": "Wait for URL to contain string"},
-						"accept":        map[string]any{"type": "boolean", "description": "Accept (true) or dismiss (false) dialog"},
-						"prompt_text":   map[string]any{"type": "string", "description": "Prompt dialog input text"},
-						"paths":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "File paths for upload"},
-						"scroll_y":      map[string]any{"type": "integer", "description": "Scroll to Y offset (pixels)"},
-					},
-					"required": []string{"action"},
-				},
-			}),
+			FunctionDef: mustJSON(browserToolDef()),
 		},
 		{
 			Name:        "read_file",
@@ -456,6 +419,88 @@ func defaultTools() []model.Tool {
 				Command: "cat {path}",
 				Timeout: 10,
 			}),
+		},
+	}
+}
+
+func browserToolDef() map[string]any {
+	allActions := []string{
+		"navigate", "screenshot", "snapshot", "get_text", "evaluate", "pdf",
+		"click", "type", "hover", "drag", "select", "fill_form", "scroll",
+		"upload", "wait", "dialog", "tabs", "open_tab", "close_tab", "close",
+		"console", "network", "cookies", "storage", "press",
+		"back", "forward", "reload",
+		"extract_table", "resize",
+		"set_device", "set_media", "highlight",
+	}
+
+	return map[string]any{
+		"name": "browser",
+		"description": "Browser automation tool. Actions: " +
+			"navigate/back/forward/reload (navigation), " +
+			"snapshot (get interactive elements with refs), " +
+			"click/type/press/hover/drag/select/fill_form/scroll (interaction), " +
+			"screenshot/pdf/get_text/extract_table (data extraction), " +
+			"console/network (monitoring), " +
+			"cookies/storage (state management), " +
+			"resize/set_device/set_media (emulation), " +
+			"highlight (debugging), " +
+			"evaluate (run JS), " +
+			"wait (wait for condition), " +
+			"tabs/open_tab/close_tab/close (tab management), " +
+			"dialog/upload (misc). " +
+			"Use 'snapshot' first to see elements with refs like 'e1', then use refs for click/type/etc.",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"action": map[string]any{
+					"type":        "string",
+					"enum":        allActions,
+					"description": "Action to perform",
+				},
+				"url":           map[string]any{"type": "string", "description": "URL for navigate/open_tab"},
+				"ref":           map[string]any{"type": "string", "description": "Element ref from snapshot (e.g. 'e1')"},
+				"text":          map[string]any{"type": "string", "description": "Text to type"},
+				"expression":    map[string]any{"type": "string", "description": "JavaScript expression for evaluate"},
+				"selector":      map[string]any{"type": "string", "description": "CSS selector (alternative to ref)"},
+				"full_page":     map[string]any{"type": "boolean", "description": "Full page screenshot"},
+				"submit":        map[string]any{"type": "boolean", "description": "Press Enter after typing"},
+				"slowly":        map[string]any{"type": "boolean", "description": "Type character by character"},
+				"button":        map[string]any{"type": "string", "enum": []string{"left", "right", "middle"}, "description": "Mouse button for click"},
+				"double_click":  map[string]any{"type": "boolean", "description": "Double-click"},
+				"start_ref":     map[string]any{"type": "string", "description": "Drag start element ref"},
+				"end_ref":       map[string]any{"type": "string", "description": "Drag end element ref"},
+				"values":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "Select option values"},
+				"fields":        map[string]any{"type": "array", "items": map[string]any{"type": "object", "properties": map[string]any{"ref": map[string]any{"type": "string"}, "value": map[string]any{"type": "string"}, "type": map[string]any{"type": "string"}}}, "description": "Form fields [{ref,value,type}]"},
+				"target_id":     map[string]any{"type": "string", "description": "Tab ID from tabs action"},
+				"wait_time":     map[string]any{"type": "integer", "description": "Wait milliseconds"},
+				"wait_text":     map[string]any{"type": "string", "description": "Wait for text to appear on page"},
+				"wait_selector": map[string]any{"type": "string", "description": "Wait for CSS selector to become visible"},
+				"wait_url":      map[string]any{"type": "string", "description": "Wait for URL to contain string"},
+				"wait_fn":       map[string]any{"type": "string", "description": "JS expression to poll until truthy (e.g. 'window.ready===true')"},
+				"wait_load":     map[string]any{"type": "string", "enum": []string{"networkidle", "domcontentloaded", "load"}, "description": "Wait for page load state"},
+				"accept":        map[string]any{"type": "boolean", "description": "Accept (true) or dismiss (false) dialog"},
+				"prompt_text":   map[string]any{"type": "string", "description": "Prompt dialog input text"},
+				"paths":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "File paths for upload"},
+				"scroll_y":      map[string]any{"type": "integer", "description": "Scroll to Y offset (pixels, 0=bottom)"},
+				"level":         map[string]any{"type": "string", "enum": []string{"error", "warn", "info", "log"}, "description": "Console log level filter"},
+				"filter":        map[string]any{"type": "string", "description": "URL keyword filter for network requests"},
+				"clear":         map[string]any{"type": "boolean", "description": "Clear buffer after reading (console/network)"},
+				"operation":     map[string]any{"type": "string", "enum": []string{"get", "set", "clear"}, "description": "Operation for cookies/storage (default: get)"},
+				"cookie_name":   map[string]any{"type": "string", "description": "Cookie name for set"},
+				"cookie_value":  map[string]any{"type": "string", "description": "Cookie value for set"},
+				"cookie_url":    map[string]any{"type": "string", "description": "Cookie URL scope for set"},
+				"cookie_domain": map[string]any{"type": "string", "description": "Cookie domain for set"},
+				"storage_type":  map[string]any{"type": "string", "enum": []string{"local", "session"}, "description": "Storage type (default: local)"},
+				"key":           map[string]any{"type": "string", "description": "Storage key for get/set"},
+				"value":         map[string]any{"type": "string", "description": "Storage value for set"},
+				"key_name":      map[string]any{"type": "string", "description": "Key name for press (Enter/Tab/Escape/Backspace/ArrowUp/Down/Left/Right/Space/F1-F12 or single char)"},
+				"width":         map[string]any{"type": "integer", "description": "Viewport width for resize"},
+				"height":        map[string]any{"type": "integer", "description": "Viewport height for resize"},
+				"device":        map[string]any{"type": "string", "description": "Device name for set_device (e.g. 'iPhone 14', 'iPad', 'Pixel 7')"},
+				"color_scheme":  map[string]any{"type": "string", "enum": []string{"dark", "light", "no-preference"}, "description": "Color scheme for set_media"},
+			},
+			"required": []string{"action"},
 		},
 	}
 }

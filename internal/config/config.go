@@ -17,7 +17,11 @@ type Config struct {
 }
 
 type BrowserConfig struct {
-	Visible bool `yaml:"visible"`
+	Visible   bool   `yaml:"visible"`
+	Width     int    `yaml:"width"`
+	Height    int    `yaml:"height"`
+	UserAgent string `yaml:"user_agent"`
+	Proxy     string `yaml:"proxy"`
 }
 
 type UploadConfig struct {

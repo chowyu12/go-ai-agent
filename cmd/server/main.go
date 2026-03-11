@@ -61,6 +61,15 @@ func main() {
 		browser.SetVisible(true)
 		log.Info("browser tool: visible mode enabled")
 	}
+	if cfg.Browser.Width > 0 && cfg.Browser.Height > 0 {
+		browser.SetViewport(cfg.Browser.Width, cfg.Browser.Height)
+	}
+	if cfg.Browser.UserAgent != "" {
+		browser.SetUserAgent(cfg.Browser.UserAgent)
+	}
+	if cfg.Browser.Proxy != "" {
+		browser.SetProxy(cfg.Browser.Proxy)
+	}
 
 	registry := agentpkg.NewToolRegistry()
 	executor := agentpkg.NewExecutor(store, registry)
@@ -86,11 +95,10 @@ func main() {
 
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
-		Addr:         addr,
-		Handler:      wrapped,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:        addr,
+		Handler:     wrapped,
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
 	}
 
 	go func() {
