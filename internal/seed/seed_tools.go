@@ -309,6 +309,7 @@ func defaultTools() []model.Tool {
 			Description: "在本地服务器上执行 Shell 命令并返回输出结果。支持任意命令，超时 30 秒。",
 			HandlerType: model.HandlerCommand,
 			Enabled:     true,
+			Timeout:     30,
 			FunctionDef: mustJSON(map[string]any{
 				"name":        "shell_exec",
 				"description": "Execute a shell command on the local server and return the output",
@@ -448,7 +449,7 @@ func defaultTools() []model.Tool {
 						},
 						"timeout": map[string]any{
 							"type":        "integer",
-							"description": "Execution timeout in seconds (default: 60 for python/js, 30 for shell, max: 120)",
+							"description": "Execution timeout in seconds (default: 60, max: 120)",
 						},
 					},
 					"required": []string{"language", "code"},

@@ -43,7 +43,7 @@ type langRuntime struct {
 var runtimes = map[string]langRuntime{
 	"python":     {Command: "python3", Extension: ".py", DefaultTimeout: 60},
 	"javascript": {Command: "node", Extension: ".js", DefaultTimeout: 60},
-	"shell":      {Command: "sh", Extension: ".sh", DefaultTimeout: 30},
+	"shell":      {Command: "sh", Extension: ".sh", DefaultTimeout: 60},
 }
 
 var dangerousCodePatterns = map[string][]string{
