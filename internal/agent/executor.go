@@ -385,7 +385,10 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 	var totalTokens int
 	totalStart := time.Now()
 
-	for i := range ec.ag.IterationLimit() {
+	maxIter := ec.ag.IterationLimit()
+	completed := false
+
+	for i := range maxIter {
 		req.Messages = messages
 		ec.l.WithFields(log.Fields{"round": i + 1, "model": ec.ag.ModelName}).Info("[LLM] >> call")
 		iterStart := time.Now()
@@ -402,6 +405,7 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 
 		if len(resp.Choices) == 0 {
 			ec.l.Warn("[LLM] << empty response")
+			completed = true
 			break
 		}
 
@@ -409,6 +413,7 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 
 		if len(choice.Message.ToolCalls) == 0 {
 			finalContent = choice.Message.Content
+			completed = true
 			ec.l.WithFields(log.Fields{
 				"round":    i + 1,
 				"duration": iterDur,
@@ -473,6 +478,13 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 		}
 	}
 
+	if !completed {
+		ec.l.WithField("max_iterations", maxIter).Error("[Execute] max iterations reached without final answer")
+		errMsg := fmt.Sprintf("已达到最大迭代次数 %d，Agent 未能给出最终回答", maxIter)
+		ec.tracker.RecordStep(ctx, model.StepLLMCall, ec.ag.ModelName, ec.userMsg, "", model.StepError, errMsg, time.Since(totalStart), totalTokens, ec.stepMeta())
+		return nil, errors.New(errMsg)
+	}
+
 	if ec.hasTools() {
 		e.recordUsedSkillSteps(ctx, ec.skills, ec.toolSkillMap, calledTools, ec.tracker)
 	}
@@ -526,8 +538,10 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 	var totalTokens int
 	var finalContent string
 	totalStart := time.Now()
+	maxIter := ec.ag.IterationLimit()
+	completed := false
 
-	for i := range ec.ag.IterationLimit() {
+	for i := range maxIter {
 		apiReq := openai.ChatCompletionRequest{
 			Model:    ec.ag.ModelName,
 			Messages: messages,
@@ -617,6 +631,7 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 
 		if finishReason != openai.FinishReasonToolCalls || len(toolCalls) == 0 {
 			finalContent = content
+			completed = true
 			ec.l.WithFields(log.Fields{
 				"round":    i + 1,
 				"duration": iterDur,
@@ -684,6 +699,13 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 				MultiContent: parts,
 			})
 		}
+	}
+
+	if !completed {
+		ec.l.WithField("max_iterations", maxIter).Error("[Execute] max iterations reached without final answer (stream)")
+		errMsg := fmt.Sprintf("已达到最大迭代次数 %d，Agent 未能给出最终回答", maxIter)
+		ec.tracker.RecordStep(ctx, model.StepLLMCall, ec.ag.ModelName, ec.userMsg, "", model.StepError, errMsg, time.Since(totalStart), totalTokens, ec.stepMeta())
+		return errors.New(errMsg)
 	}
 
 	if ec.hasTools() {

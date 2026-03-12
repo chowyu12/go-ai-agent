@@ -40,6 +40,15 @@ func main() {
 		log.WithError(err).Fatal("load config failed")
 	}
 
+	if cfg.Log.Level != "" {
+		if lvl, err := log.ParseLevel(cfg.Log.Level); err == nil {
+			log.SetLevel(lvl)
+			log.WithField("level", lvl).Info("log level configured")
+		} else {
+			log.WithFields(log.Fields{"level": cfg.Log.Level, "error": err}).Warn("invalid log level, using debug")
+		}
+	}
+
 	if err := workspace.Init(cfg.Workspace); err != nil {
 		log.WithError(err).Fatal("init workspace failed")
 	}

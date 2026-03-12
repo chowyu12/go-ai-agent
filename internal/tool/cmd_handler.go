@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"syscall"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -72,6 +73,11 @@ func commandToolHandler(ctx context.Context, cfg model.CommandHandlerConfig, tim
 	}
 
 	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error {
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+	cmd.WaitDelay = 5 * time.Second
 	if cfg.WorkingDir != "" {
 		cmd.Dir = cfg.WorkingDir
 	}

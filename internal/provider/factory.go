@@ -145,18 +145,18 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		if len(logBody) > 50*1024 {
 			logBody = truncateBase64(logBody)
 		}
-		l.WithField("body", logBody).Debug("[LLM-HTTP] >> request")
+		l.WithField("body", logBody).Trace("[LLM-HTTP] >> request")
 	}
 
 	resp, err := t.inner.RoundTrip(req)
 	if err != nil {
-		l.WithError(err).Debug("[LLM-HTTP] << error")
+		l.WithError(err).Trace("[LLM-HTTP] << error")
 		return nil, err
 	}
 
 	ct := resp.Header.Get("Content-Type")
 	if strings.Contains(ct, "text/event-stream") {
-		l.WithField("status", resp.StatusCode).Debug("[LLM-HTTP] << streaming response started")
+		l.WithField("status", resp.StatusCode).Trace("[LLM-HTTP] << streaming response started")
 		return resp, nil
 	}
 
@@ -167,6 +167,6 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-	l.WithFields(log.Fields{"status": resp.StatusCode, "body": string(respBody)}).Debug("[LLM-HTTP] << response")
+	l.WithFields(log.Fields{"status": resp.StatusCode, "body": string(respBody)}).Trace("[LLM-HTTP] << response")
 	return resp, nil
 }
