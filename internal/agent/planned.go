@@ -19,8 +19,9 @@ const (
 	maxStepIterations = 5
 )
 
-// executePlanned 使用完整的 Plan → Think → Act → Reflect 循环。
-// 适用于复杂的多步骤任务，当前未默认启用，保留供未来按需调用。
+// executePlanned 使用完整的 Plan → Think → Act → Reflect 认知循环。
+// 当前未启用，默认执行路径为 executeAgentic（直接 LLM+工具循环）。
+// 保留供未来复杂多步骤任务场景按需启用。
 func (e *Executor) executePlanned(ctx context.Context, ec *execContext) (*ExecuteResult, error) {
 	if t := ec.ag.TimeoutSeconds(); t > 0 {
 		var cancel context.CancelFunc

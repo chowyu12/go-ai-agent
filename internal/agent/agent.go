@@ -98,13 +98,13 @@ func (ec *execContext) stepMeta() *model.StepMetadata {
 func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execContext, error) {
 	ag, err := e.store.GetAgentByUUID(ctx, req.AgentID)
 	if err != nil {
-		log.WithField("agent_uuid", req.AgentID).WithError(err).Error("[Execute] agent not found")
+		log.WithField("agent_uuid", req.AgentID).WithError(err).Error("[Prepare] agent not found")
 		return nil, fmt.Errorf("agent not found: %w", err)
 	}
 
 	prov, err := e.store.GetProvider(ctx, ag.ProviderID)
 	if err != nil {
-		log.WithFields(log.Fields{"agent": ag.Name, "provider_id": ag.ProviderID}).WithError(err).Error("[Execute] provider not found")
+		log.WithFields(log.Fields{"agent": ag.Name, "provider_id": ag.ProviderID}).WithError(err).Error("[Prepare] provider not found")
 		return nil, fmt.Errorf("provider not found: %w", err)
 	}
 
@@ -112,26 +112,26 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 
 	llmProv, err := e.providerFactory(prov, ag.ModelName)
 	if err != nil {
-		l.WithError(err).Error("[Execute] create llm provider failed")
+		l.WithError(err).Error("[Prepare] create llm provider failed")
 		return nil, fmt.Errorf("create llm provider: %w", err)
 	}
 
 	agentTools, toolSkillMap, err := e.collectTools(ctx, ag.ID)
 	if err != nil {
-		l.WithError(err).Error("[Execute] collect tools failed")
+		l.WithError(err).Error("[Prepare] collect tools failed")
 		return nil, err
 	}
 
 	skills, err := e.store.GetAgentSkills(ctx, ag.ID)
 	if err != nil {
-		l.WithError(err).Error("[Execute] get skills failed")
+		l.WithError(err).Error("[Prepare] get skills failed")
 		return nil, fmt.Errorf("get agent skills: %w", err)
 	}
 
 	isNewConv := req.ConversationID == ""
 	conv, err := e.convMem.GetOrCreateConversation(ctx, req.ConversationID, ag.ID, req.UserID)
 	if err != nil {
-		l.WithError(err).Error("[Execute] get/create conversation failed")
+		l.WithError(err).Error("[Prepare] get/create conversation failed")
 		return nil, fmt.Errorf("get conversation: %w", err)
 	}
 	if isNewConv {
@@ -254,7 +254,7 @@ func (e *Executor) buildSkillManifestTools(skills []model.Skill, tracker *tool.S
 				Tracker:   tracker,
 			})
 		}
-		log.WithFields(log.Fields{"skill": sk.Name, "manifest_tools": len(toolDefs)}).Debug("[Execute]    skill manifest tools loaded")
+		log.WithFields(log.Fields{"skill": sk.Name, "manifest_tools": len(toolDefs)}).Debug("[Prepare]    skill manifest tools loaded")
 	}
 	return result
 }
@@ -282,7 +282,7 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 				names = append(names, t.Name)
 				toolSkillMap[t.Name] = sk.Name
 			}
-			log.WithFields(log.Fields{"skill": sk.Name, "tools": names}).Debug("[Execute]    skill contributed tools")
+			log.WithFields(log.Fields{"skill": sk.Name, "tools": names}).Debug("[Prepare]    skill contributed tools")
 		}
 		agentTools = append(agentTools, skillTools...)
 	}
@@ -292,14 +292,14 @@ func (e *Executor) collectTools(ctx context.Context, agentID int64) ([]model.Too
 func (e *Executor) saveResult(ctx context.Context, ec *execContext, content string, tokensUsed int, duration time.Duration) (*ExecuteResult, error) {
 	msgID, err := e.convMem.SaveAssistantMessage(ctx, ec.conv.ID, content, tokensUsed)
 	if err != nil {
-		ec.l.WithError(err).Error("[Execute] save assistant message failed")
+		ec.l.WithError(err).Error("[Agentic] save assistant message failed")
 		return nil, err
 	}
 
 	ec.tracker.SetMessageID(msgID)
 	ec.tracker.RecordStep(ctx, model.StepLLMCall, ec.ag.ModelName, ec.userMsg, content, model.StepSuccess, "", duration, tokensUsed, ec.stepMeta())
 
-	ec.l.WithFields(log.Fields{"msg_id": msgID, "duration": duration, "tokens": tokensUsed}).Info("[Execute] << done")
+	ec.l.WithFields(log.Fields{"msg_id": msgID, "duration": duration, "tokens": tokensUsed}).Info("[Agentic] << done")
 	return &ExecuteResult{
 		ConversationID: ec.conv.UUID,
 		Content:        content,

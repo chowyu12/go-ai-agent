@@ -14,9 +14,9 @@ func (e *Executor) Execute(ctx context.Context, req model.ChatRequest) (*Execute
 	}
 	defer ec.closeMCP()
 
-	ec.l.WithField("user", req.UserID).Info("[Execute] >> start")
+	ec.l.WithField("user", req.UserID).Info("[Agentic] >> start")
 	if body, err := json.Marshal(req); err == nil {
-		ec.l.WithField("body", string(body)).Debug("[Execute]    request body")
+		ec.l.WithField("body", string(body)).Debug("[Agentic]    request body")
 	}
 
 	return e.executeAgentic(ctx, ec)

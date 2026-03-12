@@ -22,7 +22,7 @@ func (e *Executor) loadRequestFiles(ctx context.Context, chatFiles []model.ChatF
 			}
 			f, err := e.store.GetFileByUUID(ctx, cf.UploadFileID)
 			if err != nil {
-				log.WithField("upload_file_id", cf.UploadFileID).WithError(err).Warn("[Execute] load uploaded file failed, skipping")
+				log.WithField("upload_file_id", cf.UploadFileID).WithError(err).Warn("[Prepare] load uploaded file failed, skipping")
 				continue
 			}
 			seen[f.UUID] = true
@@ -59,7 +59,7 @@ func (e *Executor) loadRequestFiles(ctx context.Context, chatFiles []model.ChatF
 		for _, f := range files {
 			names = append(names, fmt.Sprintf("%s(%s)", f.Filename, f.FileType))
 		}
-		log.WithField("files", names).Info("[Execute] files loaded for context")
+		log.WithField("files", names).Info("[Prepare] files loaded for context")
 	}
 	return files
 }

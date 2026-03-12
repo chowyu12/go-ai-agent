@@ -45,14 +45,14 @@ func logResourceSummary(l *log.Entry, agentTools []model.Tool, skills []model.Sk
 	l.WithFields(log.Fields{
 		"tools":  toolNames,
 		"skills": skillNames,
-	}).Info("[Execute]    resources loaded")
+	}).Info("[Prepare]    resources loaded")
 
 	for _, sk := range skills {
 		fields := log.Fields{"skill": sk.Name, "has_instruction": sk.Instruction != ""}
 		if sk.Instruction != "" {
 			fields["instruction_len"] = len(sk.Instruction)
 		}
-		l.WithFields(fields).Debug("[Execute]    skill detail")
+		l.WithFields(fields).Debug("[Prepare]    skill detail")
 	}
 }
 

@@ -13,7 +13,7 @@ func (e *Executor) ExecuteStream(ctx context.Context, req model.ChatRequest, chu
 	}
 	defer ec.closeMCP()
 
-	ec.l.WithField("user", req.UserID).Info("[Execute] >> start (stream)")
+	ec.l.WithField("user", req.UserID).Info("[Agentic] >> start (stream)")
 
 	ec.tracker.SetOnStep(func(step model.ExecutionStep) {
 		_ = chunkHandler(model.StreamChunk{

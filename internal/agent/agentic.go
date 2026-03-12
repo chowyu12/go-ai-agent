@@ -14,7 +14,10 @@ import (
 )
 
 // ============================================================
-//  直接执行：Memory Recall → LLM + Tool Loop → Memory Extract
+//  Agentic 执行：记忆召回 → 构建上下文 → LLM+工具循环 → 记忆提取
+//
+//  默认执行路径。LLM 自主决定是否调用工具（Function Calling），
+//  支持多轮工具调用循环，每轮结果追加到上下文继续推理。
 // ============================================================
 
 func (e *Executor) executeAgentic(ctx context.Context, ec *execContext) (*ExecuteResult, error) {
@@ -31,15 +34,15 @@ func (e *Executor) executeAgentic(ctx context.Context, ec *execContext) (*Execut
 		return nil, err
 	}
 
-	// ── Phase 0: 长期记忆召回（仅 store 查询，无 LLM 调用） ──
+	// ── 记忆召回（仅 store 查询，无 LLM 调用） ──
 	memories := e.longMem.Recall(ctx, ec.ag.ID, ec.conv.UserID, ec.userMsg, 5)
 	if len(memories) > 0 {
 		ec.tracker.RecordStep(ctx, model.StepMemoryRecall, "long_term_memory",
 			ec.userMsg, formatMemories(memories), model.StepSuccess, "", 0, 0, nil)
-		ec.l.WithField("count", len(memories)).Info("[Execute] memories recalled")
+		ec.l.WithField("count", len(memories)).Info("[Agentic] memories recalled")
 	}
 
-	// ── Phase 1: 构建完整会话上下文 ──
+	// ── 构建上下文：历史消息 + System Prompt + 技能指令 + 文件 + 记忆 ──
 	history, err := e.convMem.LoadHistory(ctx, ec.conv.ID, ec.ag.HistoryLimit())
 	if err != nil {
 		return nil, fmt.Errorf("load history: %w", err)
@@ -52,7 +55,7 @@ func (e *Executor) executeAgentic(ctx context.Context, ec *execContext) (*Execut
 
 	toolMap, toolDefs := e.buildAgenticToolMap(ec)
 
-	// ── Phase 2: LLM + 工具调用循环 ──
+	// ── LLM + 工具调用循环（LLM 自主决定是否调用工具） ──
 	iterLimit := ec.ag.IterationLimit()
 	var finalContent string
 
@@ -64,7 +67,7 @@ func (e *Executor) executeAgentic(ctx context.Context, ec *execContext) (*Execut
 		}
 		applyModelCaps(&req, ec.ag, ec.l)
 
-		ec.l.WithField("iter", i+1).Debug("[Execute] LLM call")
+		ec.l.WithField("iter", i+1).Debug("[Agentic] LLM call")
 		resp, llmErr := ec.llmProv.CreateChatCompletion(ctx, req)
 		if llmErr != nil {
 			return nil, fmt.Errorf("llm call: %w", llmErr)
@@ -107,7 +110,7 @@ func (e *Executor) executeAgentic(ctx context.Context, ec *execContext) (*Execut
 		}
 	}
 
-	// ── Phase 3: 异步提取长期记忆 ──
+	// ── 异步提取长期记忆（后台 goroutine，不阻塞响应） ──
 	go e.longMem.ExtractAndStore(context.WithoutCancel(ctx), ec.llmProv, ec.ag.ModelName,
 		ec.ag.ID, ec.conv.UserID, ec.conv.UUID, ec.userMsg, finalContent)
 
@@ -123,7 +126,8 @@ func injectMemories(messages []openai.ChatCompletionMessage, memories []model.Me
 }
 
 // ============================================================
-//  流式（步骤事件通过 tracker 推送，最终回答一次性发送）
+//  流式执行：复用 executeAgentic，工具调用步骤通过 tracker 实时推送，
+//  最终回答作为完整 chunk 一次性发送。
 // ============================================================
 
 func (e *Executor) streamAgentic(ctx context.Context, ec *execContext, chunkHandler func(chunk model.StreamChunk) error) error {
@@ -143,10 +147,8 @@ func (e *Executor) streamAgentic(ctx context.Context, ec *execContext, chunkHand
 	})
 }
 
-// ============================================================
-//  辅助函数
-// ============================================================
-
+// buildAgenticToolMap 构建工具映射和 LLM 工具定义。
+// 合并三类工具：Agent 关联的 DB 工具、MCP 远程工具、技能 manifest 工具。
 func (e *Executor) buildAgenticToolMap(ec *execContext) (map[string]tool.Tool, []openai.Tool) {
 	if !ec.hasTools() {
 		return nil, nil
