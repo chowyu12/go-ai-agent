@@ -610,17 +610,12 @@ func newTestExecutor(s *mockStore, registry *tool.Registry, mockLLM *mockLLMProv
 	))
 }
 
-// agenticResponses builds mock LLM responses for the agentic flow (1-step plan).
-// Order: [plan, think, actResps..., stepReflect, finalReflect, memoryExtractBuffer]
-func agenticResponses(actResps ...openai.ChatCompletionResponse) []openai.ChatCompletionResponse {
-	filler := textResp("{}")
-	var all []openai.ChatCompletionResponse
-	all = append(all, filler)          // plan generation → fallback 1-step plan
-	all = append(all, filler)          // think → default thought
-	all = append(all, actResps...)     // act phase
-	all = append(all, filler)          // reflect on step → default reflection
-	all = append(all, filler)          // reflect on plan (final)
-	all = append(all, filler, filler)  // buffer for async memory extract goroutine
+// directResponses builds mock LLM responses for the direct execution flow.
+// Appends a buffer response for the async memory extraction goroutine.
+func directResponses(resps ...openai.ChatCompletionResponse) []openai.ChatCompletionResponse {
+	all := make([]openai.ChatCompletionResponse, 0, len(resps)+1)
+	all = append(all, resps...)
+	all = append(all, textResp("{}")) // buffer for async memory extract
 	return all
 }
 

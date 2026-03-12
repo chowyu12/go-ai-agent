@@ -214,7 +214,7 @@ func TestTruncateLog(t *testing.T) {
 func TestExecute_Simple(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
-	mockLLM := &mockLLMProvider{responses: agenticResponses(textResp("你好世界"))}
+	mockLLM := &mockLLMProvider{responses: directResponses(textResp("你好世界"))}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 
 	result, err := exec.Execute(t.Context(), model.ChatRequest{
@@ -273,18 +273,18 @@ func TestExecute_LLMError(t *testing.T) {
 	s := newMockStore()
 	seedAgent(t, s)
 	mockLLM := &mockLLMProvider{
-		errors: []error{nil, nil, errors.New("rate limit exceeded")},
+		errors: []error{errors.New("rate limit exceeded")},
 	}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 
-	result, err := exec.Execute(t.Context(), model.ChatRequest{
+	_, err := exec.Execute(t.Context(), model.ChatRequest{
 		AgentID: "test-agent", UserID: "u1", Message: "hello",
 	})
-	if err != nil {
-		t.Fatalf("agentic mode should handle LLM errors gracefully: %v", err)
+	if err == nil {
+		t.Fatal("expected error when LLM fails")
 	}
-	if result.Content == "" {
-		t.Error("expected fallback content even after step LLM error")
+	if !strings.Contains(err.Error(), "rate limit exceeded") {
+		t.Errorf("expected 'rate limit exceeded' error, got: %v", err)
 	}
 }
 
@@ -299,7 +299,7 @@ func TestExecute_WithToolCall(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "test_echo", "echo tool for test")
 
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("test_echo", `{"text":"ping"}`),
 			textResp("工具返回了 ECHO:{\"text\":\"ping\"}"),
 		),
@@ -355,7 +355,7 @@ func TestExecute_WithMultipleToolCalls(t *testing.T) {
 	}}}
 
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			multiToolCall,
 			textResp("综合结果: result_a 和 result_b"),
 		),
@@ -394,7 +394,7 @@ func TestExecute_ToolCallError(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "failing_tool", "tool that fails")
 
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("failing_tool", "{}"),
 			textResp("工具调用失败了，让我直接回答"),
 		),
@@ -428,7 +428,7 @@ func TestExecute_ToolNotFoundByLLM(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "real_tool", "a real tool")
 
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("nonexistent_tool", "{}"),
 			textResp("我没法使用那个工具"),
 		),
@@ -455,7 +455,7 @@ func TestExecute_WithSkills(t *testing.T) {
 	s.CreateSkill(ctx, sk)
 	s.SetAgentSkills(ctx, agent.ID, []int64{sk.ID})
 
-	mockLLM := &mockLLMProvider{responses: agenticResponses(textResp("translated content"))}
+	mockLLM := &mockLLMProvider{responses: directResponses(textResp("translated content"))}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 
 	result, err := exec.Execute(ctx, model.ChatRequest{
@@ -473,7 +473,7 @@ func TestExecute_ConversationReuse(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(textResp("first response")),
+		responses: directResponses(textResp("first response")),
 	}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 	ctx := t.Context()
@@ -490,7 +490,7 @@ func TestExecute_ConversationReuse(t *testing.T) {
 	}
 
 	mockLLM2 := &mockLLMProvider{
-		responses: agenticResponses(textResp("second response")),
+		responses: directResponses(textResp("second response")),
 	}
 	exec2 := newTestExecutor(s, tool.NewRegistry(), mockLLM2)
 
@@ -512,7 +512,7 @@ func TestExecute_ConversationReuse(t *testing.T) {
 func TestExecuteStream_Simple(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
-	mockLLM := &mockLLMProvider{responses: agenticResponses(textResp("这是流式响应内容"))}
+	mockLLM := &mockLLMProvider{responses: directResponses(textResp("这是流式响应内容"))}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 
 	var chunks []model.StreamChunk
@@ -547,22 +547,20 @@ func TestExecuteStream_LLMError(t *testing.T) {
 	s := newMockStore()
 	seedAgent(t, s)
 	mockLLM := &mockLLMProvider{
-		errors: []error{nil, nil, errors.New("stream broken")},
+		errors: []error{errors.New("stream broken")},
 	}
 	exec := newTestExecutor(s, tool.NewRegistry(), mockLLM)
 
-	var chunks []model.StreamChunk
 	err := exec.ExecuteStream(t.Context(), model.ChatRequest{
 		AgentID: "test-agent", UserID: "u1", Message: "hello",
-	}, func(chunk model.StreamChunk) error {
-		chunks = append(chunks, chunk)
+	}, func(_ model.StreamChunk) error {
 		return nil
 	})
-	if err != nil {
-		t.Fatalf("agentic stream should handle step LLM errors gracefully: %v", err)
+	if err == nil {
+		t.Fatal("expected error when LLM fails")
 	}
-	if len(chunks) == 0 {
-		t.Error("expected at least 1 chunk with fallback content")
+	if !strings.Contains(err.Error(), "stream broken") {
+		t.Errorf("expected 'stream broken' error, got: %v", err)
 	}
 }
 
@@ -577,7 +575,7 @@ func TestExecuteStream_WithTools(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "stream_echo", "echo for stream test")
 
 	mockLLM := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("stream_echo", `{"msg":"hi"}`),
 			textResp("流式工具结果已处理"),
 		),
@@ -939,7 +937,7 @@ func TestExecute_MultiRoundToolCalls(t *testing.T) {
 	seedToolForAgent(t, s, agent.ID, "translate", "translate text")
 
 	mockLLM1 := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("weather", `{"city":"北京"}`),
 			textResp("北京今天25度，天气晴朗"),
 		),
@@ -958,7 +956,7 @@ func TestExecute_MultiRoundToolCalls(t *testing.T) {
 	}
 
 	mockLLM2 := &mockLLMProvider{
-		responses: agenticResponses(
+		responses: directResponses(
 			toolCallResp("translate", `{"text":"晴朗"}`),
 			textResp("翻译结果：sunny, 25 degrees"),
 		),
