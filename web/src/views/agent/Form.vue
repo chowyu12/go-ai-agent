@@ -451,10 +451,9 @@ async function handleSubmit() {
       ElMessage.success("更新成功");
       goBack();
     } else {
-      const res: any = await agentApi.create(form.value);
-      const created = res.data;
+      await agentApi.create(form.value);
       ElMessage.success("创建成功");
-      router.replace({ name: "AgentEdit", params: { id: created.id } });
+      goBack();
     }
   } finally {
     submitting.value = false;
