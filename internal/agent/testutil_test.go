@@ -36,7 +36,6 @@ type mockStore struct {
 
 	agentToolIDs  map[int64][]int64
 	agentSkillIDs map[int64][]int64
-	agentChildIDs map[int64][]int64
 	skillToolIDs  map[int64][]int64
 
 	getConvByUUIDErr error
@@ -55,7 +54,6 @@ func newMockStore() *mockStore {
 		execSteps:     make(map[int64][]model.ExecutionStep),
 		agentToolIDs:  make(map[int64][]int64),
 		agentSkillIDs: make(map[int64][]int64),
-		agentChildIDs: make(map[int64][]int64),
 		skillToolIDs:  make(map[int64][]int64),
 	}
 }
@@ -167,23 +165,6 @@ func (s *mockStore) GetAgentSkills(_ context.Context, agentID int64) ([]model.Sk
 	for _, id := range s.agentSkillIDs[agentID] {
 		if sk, ok := s.skillItems[id]; ok {
 			result = append(result, *sk)
-		}
-	}
-	return result, nil
-}
-func (s *mockStore) SetAgentChildren(_ context.Context, agentID int64, childIDs []int64) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.agentChildIDs[agentID] = childIDs
-	return nil
-}
-func (s *mockStore) GetAgentChildren(_ context.Context, agentID int64) ([]model.Agent, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	var result []model.Agent
-	for _, id := range s.agentChildIDs[agentID] {
-		if a, ok := s.agents[id]; ok {
-			result = append(result, *a)
 		}
 	}
 	return result, nil
@@ -580,9 +561,9 @@ func (s *mockChatStream) Close() error { return nil }
 
 // ==================== Test Helpers ====================
 
-func testJSON(v any) json.RawMessage {
+func testJSON(v any) model.JSON {
 	data, _ := json.Marshal(v)
-	return data
+	return model.JSON(data)
 }
 
 func seedAgent(t *testing.T, s *mockStore) (*model.Agent, *model.Provider) {

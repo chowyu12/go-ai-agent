@@ -1,33 +1,30 @@
 package model
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 type Conversation struct {
-	ID        int64     `json:"id"`
-	UUID      string    `json:"uuid"`
-	AgentID   int64     `json:"agent_id"`
-	UserID    string    `json:"user_id"`
-	Title     string    `json:"title"`
+	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	UUID      string    `json:"uuid" gorm:"uniqueIndex;size:36;not null"`
+	AgentID   int64     `json:"agent_id" gorm:"index;not null"`
+	UserID    string    `json:"user_id" gorm:"size:100;index;not null"`
+	Title     string    `json:"title" gorm:"size:500"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Message struct {
-	ID             int64           `json:"id"`
-	ConversationID int64           `json:"conversation_id"`
-	Role           string          `json:"role"`
-	Content        string          `json:"content"`
-	ToolCalls      json.RawMessage `json:"tool_calls,omitzero"`
-	ToolCallID     string          `json:"tool_call_id,omitzero"`
-	TokensUsed     int             `json:"tokens_used"`
-	ParentStepID   int64           `json:"parent_step_id,omitzero"`
-	CreatedAt      time.Time       `json:"created_at"`
+	ID             int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	ConversationID int64     `json:"conversation_id" gorm:"index;not null"`
+	Role           string    `json:"role" gorm:"size:50;not null"`
+	Content        string    `json:"content" gorm:"type:text"`
+	ToolCalls      JSON      `json:"tool_calls,omitzero" gorm:"type:text"`
+	ToolCallID     string    `json:"tool_call_id,omitzero" gorm:"size:100"`
+	TokensUsed     int       `json:"tokens_used" gorm:"default:0"`
+	ParentStepID   int64     `json:"parent_step_id,omitzero" gorm:"default:0"`
+	CreatedAt      time.Time `json:"created_at"`
 
-	Steps []ExecutionStep `json:"steps,omitzero"`
-	Files []*File          `json:"files,omitzero"`
+	Steps []ExecutionStep `json:"steps,omitzero" gorm:"-"`
+	Files []*File         `json:"files,omitzero" gorm:"-"`
 }
 
 type StepType string
@@ -35,7 +32,6 @@ type StepType string
 const (
 	StepLLMCall    StepType = "llm_call"
 	StepToolCall   StepType = "tool_call"
-	StepAgentCall  StepType = "agent_call"
 	StepSkillMatch StepType = "skill_match"
 )
 
@@ -48,20 +44,20 @@ const (
 )
 
 type ExecutionStep struct {
-	ID             int64           `json:"id"`
-	MessageID      int64           `json:"message_id"`
-	ConversationID int64           `json:"conversation_id"`
-	StepOrder      int             `json:"step_order"`
-	StepType       StepType        `json:"step_type"`
-	Name           string          `json:"name"`
-	Input          string          `json:"input"`
-	Output         string          `json:"output"`
-	Status         StepStatus      `json:"status"`
-	Error          string          `json:"error,omitzero"`
-	DurationMs     int             `json:"duration_ms"`
-	TokensUsed     int             `json:"tokens_used"`
-	Metadata       json.RawMessage `json:"metadata,omitzero"`
-	CreatedAt      time.Time       `json:"created_at"`
+	ID             int64      `json:"id" gorm:"primaryKey;autoIncrement"`
+	MessageID      int64      `json:"message_id" gorm:"index;default:0"`
+	ConversationID int64      `json:"conversation_id" gorm:"index;not null"`
+	StepOrder      int        `json:"step_order" gorm:"not null"`
+	StepType       StepType   `json:"step_type" gorm:"size:50;not null"`
+	Name           string     `json:"name" gorm:"size:200"`
+	Input          string     `json:"input" gorm:"type:text"`
+	Output         string     `json:"output" gorm:"type:text"`
+	Status         StepStatus `json:"status" gorm:"size:50;not null;default:pending"`
+	Error          string     `json:"error,omitzero" gorm:"type:text"`
+	DurationMs     int        `json:"duration_ms" gorm:"default:0"`
+	TokensUsed     int        `json:"tokens_used" gorm:"default:0"`
+	Metadata       JSON       `json:"metadata,omitzero" gorm:"type:text"`
+	CreatedAt      time.Time  `json:"created_at"`
 }
 
 type StepMetadata struct {

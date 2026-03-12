@@ -12,7 +12,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/mcp"
+	"github.com/chowyu12/go-ai-agent/internal/tool/mcp"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/provider"
 	"github.com/chowyu12/go-ai-agent/internal/skill"
@@ -72,7 +72,6 @@ type execContext struct {
 	l       *log.Entry
 
 	agentTools    []model.Tool
-	subAgentTools []Tool
 	mcpTools      []Tool
 	skillTools    []Tool
 	mcpManager    *mcp.Manager
@@ -80,7 +79,7 @@ type execContext struct {
 }
 
 func (ec *execContext) hasTools() bool {
-	return len(ec.agentTools) > 0 || len(ec.subAgentTools) > 0 || len(ec.mcpTools) > 0 || len(ec.skillTools) > 0
+	return len(ec.agentTools) > 0 || len(ec.mcpTools) > 0 || len(ec.skillTools) > 0
 }
 
 func (ec *execContext) closeMCP() {
@@ -183,12 +182,11 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 	}
 
 	tracker := NewStepTracker(e.store, conv.ID)
-	subAgentTools := e.buildSubAgentTools(ctx, ag.ID, tracker)
 
 	mcpManager, mcpTools := e.connectMCPServers(ctx, ag.ID, tracker, toolSkillMap)
 	skillTools := e.buildSkillManifestTools(skills, tracker, toolSkillMap)
 
-	logResourceSummary(l, agentTools, skills, subAgentTools)
+	logResourceSummary(l, agentTools, skills)
 
 	files := e.loadRequestFiles(ctx, req.Files, conv.ID)
 
@@ -203,7 +201,6 @@ func (e *Executor) prepare(ctx context.Context, req model.ChatRequest) (*execCon
 		userMsg:       req.Message,
 		l:             l.WithField("conv", conv.UUID),
 		agentTools:    agentTools,
-		subAgentTools: subAgentTools,
 		mcpTools:      mcpTools,
 		skillTools:    skillTools,
 		mcpManager:    mcpManager,
@@ -363,20 +360,19 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 
 	if ec.hasTools() {
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
-		lcTools = append(lcTools, ec.subAgentTools...)
 		lcTools = append(lcTools, ec.mcpTools...)
 		lcTools = append(lcTools, ec.skillTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools, ec.skillTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.mcpTools, ec.skillTools)
 		ec.l.Info("[Execute]    mode = tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = simple")
 	}
 
-	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.subAgentTools, ec.toolSkillMap, ec.files)
+	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.toolSkillMap, ec.files)
 	logMessages(ec.l, messages)
 
 	req := openai.ChatCompletionRequest{
@@ -512,20 +508,19 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 
 	if ec.hasTools() {
 		lcTools := e.registry.BuildTrackedTools(ec.agentTools, ec.tracker, ec.toolSkillMap)
-		lcTools = append(lcTools, ec.subAgentTools...)
 		lcTools = append(lcTools, ec.mcpTools...)
 		lcTools = append(lcTools, ec.skillTools...)
 		toolMap = make(map[string]Tool, len(lcTools))
 		for _, t := range lcTools {
 			toolMap[t.Name()] = t
 		}
-		toolDefs = buildLLMToolDefs(ec.agentTools, ec.subAgentTools, ec.mcpTools, ec.skillTools)
+		toolDefs = buildLLMToolDefs(ec.agentTools, ec.mcpTools, ec.skillTools)
 		ec.l.Info("[Execute]    mode = stream + tool-augmented")
 	} else {
 		ec.l.Info("[Execute]    mode = stream")
 	}
 
-	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.subAgentTools, ec.toolSkillMap, ec.files)
+	messages := buildMessages(ec.ag, ec.skills, history, ec.userMsg, ec.agentTools, ec.toolSkillMap, ec.files)
 	logMessages(ec.l, messages)
 
 	var totalTokens int

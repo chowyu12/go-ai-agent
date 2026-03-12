@@ -16,7 +16,7 @@ import (
 func TestBuildSystemPrompt(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
 		ag := &model.Agent{}
-		result := buildSystemPrompt(ag, nil, nil, nil, nil)
+		result := buildSystemPrompt(ag, nil, nil, nil)
 		if result != "" {
 			t.Errorf("expected empty, got %q", result)
 		}
@@ -24,7 +24,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 	t.Run("with_prompt", func(t *testing.T) {
 		ag := &model.Agent{SystemPrompt: "你是助手"}
-		result := buildSystemPrompt(ag, nil, nil, nil, nil)
+		result := buildSystemPrompt(ag, nil, nil, nil)
 		if result != "你是助手" {
 			t.Errorf("expected '你是助手', got %q", result)
 		}
@@ -33,7 +33,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 	t.Run("with_skills", func(t *testing.T) {
 		ag := &model.Agent{SystemPrompt: "base"}
 		skills := []model.Skill{{Name: "翻译", Instruction: "翻译指令"}}
-		result := buildSystemPrompt(ag, skills, nil, nil, nil)
+		result := buildSystemPrompt(ag, skills, nil, nil)
 		if !strings.Contains(result, "翻译") || !strings.Contains(result, "翻译指令") {
 			t.Errorf("skill not included: %q", result)
 		}
@@ -45,7 +45,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 			{Name: "current_time", Description: "获取当前时间", Enabled: true},
 			{Name: "calculator", Description: "数学计算", Enabled: true},
 		}
-		result := buildSystemPrompt(ag, nil, tools, nil, nil)
+		result := buildSystemPrompt(ag, nil, tools, nil)
 		if !strings.Contains(result, "current_time") || !strings.Contains(result, "calculator") {
 			t.Errorf("tool names not included: %q", result)
 		}
@@ -64,7 +64,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 			{Name: "translate_api", Description: "文本翻译", Enabled: true},
 		}
 		toolSkillMap := map[string]string{"translate_api": "翻译"}
-		result := buildSystemPrompt(ag, skills, tools, nil, toolSkillMap)
+		result := buildSystemPrompt(ag, skills, tools, toolSkillMap)
 		if !strings.Contains(result, "关联工具: translate_api") {
 			t.Errorf("missing skill-tool association: %q", result)
 		}
@@ -82,7 +82,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 			{Name: "enabled_tool", Description: "可用", Enabled: true},
 			{Name: "disabled_tool", Description: "禁用", Enabled: false},
 		}
-		result := buildSystemPrompt(ag, nil, tools, nil, nil)
+		result := buildSystemPrompt(ag, nil, tools, nil)
 		if !strings.Contains(result, "enabled_tool") {
 			t.Errorf("enabled tool missing: %q", result)
 		}
@@ -97,7 +97,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 		tools := []model.Tool{
 			{Name: "test_tool", Description: "测试工具", Enabled: true},
 		}
-		result := buildSystemPrompt(ag, skills, tools, nil, nil)
+		result := buildSystemPrompt(ag, skills, tools, nil)
 		if !strings.Contains(result, "base prompt") {
 			t.Error("missing base prompt")
 		}
@@ -112,7 +112,7 @@ func TestBuildSystemPrompt(t *testing.T) {
 
 func TestBuildLLMToolDefs(t *testing.T) {
 	t.Run("empty", func(t *testing.T) {
-		defs := buildLLMToolDefs(nil, nil, nil, nil)
+		defs := buildLLMToolDefs(nil, nil, nil)
 		if len(defs) != 0 {
 			t.Errorf("expected 0, got %d", len(defs))
 		}
@@ -123,7 +123,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 			{Name: "a", Description: "A", Enabled: false},
 			{Name: "b", Description: "B", Enabled: true},
 		}
-		defs := buildLLMToolDefs(modelTools, nil, nil, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if len(defs) != 1 {
 			t.Fatalf("expected 1, got %d", len(defs))
 		}
@@ -145,7 +145,7 @@ func TestBuildLLMToolDefs(t *testing.T) {
 		modelTools := []model.Tool{
 			{Name: "weather", Description: "orig", Enabled: true, FunctionDef: funcDef},
 		}
-		defs := buildLLMToolDefs(modelTools, nil, nil, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if len(defs) != 1 {
 			t.Fatalf("expected 1, got %d", len(defs))
 		}
@@ -161,25 +161,11 @@ func TestBuildLLMToolDefs(t *testing.T) {
 		}
 	})
 
-	t.Run("with_sub_agent_tools", func(t *testing.T) {
-		subTools := []Tool{&dynamicTool{
-			toolName: "delegate_child",
-			toolDesc: "delegate to child",
-		}}
-		defs := buildLLMToolDefs(nil, subTools, nil, nil)
-		if len(defs) != 1 {
-			t.Fatalf("expected 1, got %d", len(defs))
-		}
-		if defs[0].Function.Name != "delegate_child" {
-			t.Errorf("expected 'delegate_child', got %q", defs[0].Function.Name)
-		}
-	})
-
 	t.Run("no_parameters_adds_default", func(t *testing.T) {
 		modelTools := []model.Tool{
 			{Name: "simple", Description: "simple tool", Enabled: true},
 		}
-		defs := buildLLMToolDefs(modelTools, nil, nil, nil)
+		defs := buildLLMToolDefs(modelTools, nil, nil)
 		if defs[0].Function.Parameters == nil {
 			t.Error("expected default parameters, got nil")
 		}
@@ -218,26 +204,6 @@ func TestTruncateLog(t *testing.T) {
 			t.Errorf("should not contain newlines: %q", got)
 		}
 	})
-}
-
-func TestSanitizeToolName(t *testing.T) {
-	tests := []struct {
-		input, want string
-	}{
-		{"hello", "hello"},
-		{"Hello World", "hello_world"},
-		{"test-tool!", "test_tool_"},
-		{"", "agent"},
-		{"测试工具", "____"},
-		{"tool_123", "tool_123"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			if got := sanitizeToolName(tt.input); got != tt.want {
-				t.Errorf("sanitizeToolName(%q) = %q, want %q", tt.input, got, tt.want)
-			}
-		})
-	}
 }
 
 // ==================== Executor Integration Tests ====================
@@ -583,43 +549,6 @@ func TestExecute_ConversationReuse(t *testing.T) {
 	}
 }
 
-func TestExecute_WithSubAgents(t *testing.T) {
-	s := newMockStore()
-	ctx := t.Context()
-
-	p := &model.Provider{Name: "prov", Type: model.ProviderOpenAI, APIKey: "k", Enabled: true}
-	s.CreateProvider(ctx, p)
-
-	child := &model.Agent{UUID: "child-agent", Name: "ChildBot", ProviderID: p.ID, ModelName: "gpt-test", Temperature: 0.5, MaxTokens: 256}
-	s.CreateAgent(ctx, child)
-
-	parent := &model.Agent{UUID: "parent-agent", Name: "ParentBot", ProviderID: p.ID, ModelName: "gpt-test", Temperature: 0.5, MaxTokens: 512}
-	s.CreateAgent(ctx, parent)
-	s.SetAgentChildren(ctx, parent.ID, []int64{child.ID})
-
-	mockLLM := &mockLLMProvider{
-		responses: []openai.ChatCompletionResponse{
-			toolCallResp("delegate_childbot", `{"input":"子任务"}`),
-			textResp("子代理完成了任务"),
-			textResp("最终结果：子代理完成了任务"),
-		},
-	}
-	exec := newTestExecutor(s, NewToolRegistry(), mockLLM)
-
-	result, err := exec.Execute(ctx, model.ChatRequest{
-		AgentID: parent.UUID, UserID: "u1", Message: "委托子代理",
-	})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Content == "" {
-		t.Error("expected non-empty content")
-	}
-	if mockLLM.callCount() < 2 {
-		t.Errorf("expected at least 2 LLM calls (parent + child), got %d", mockLLM.callCount())
-	}
-}
-
 func TestExecuteStream_Simple(t *testing.T) {
 	s := newMockStore()
 	agent, _ := seedAgent(t, s)
@@ -764,7 +693,7 @@ func TestBuildMessages(t *testing.T) {
 	}
 	tools := []model.Tool{{Name: "tool1", Description: "test tool", Enabled: true}}
 
-	msgs := buildMessages(ag, skills, history, "new question", tools, nil, nil, nil)
+	msgs := buildMessages(ag, skills, history, "new question", tools, nil, nil)
 
 	if len(msgs) < 4 {
 		t.Fatalf("expected at least 4 messages (system + 2 history + user), got %d", len(msgs))
@@ -788,7 +717,7 @@ func TestBuildMessages_WithFiles(t *testing.T) {
 		{Filename: "readme.txt", FileType: model.FileTypeText, TextContent: "This is a readme file content."},
 	}
 
-	msgs := buildMessages(ag, nil, nil, "summarize the file", nil, nil, nil, files)
+	msgs := buildMessages(ag, nil, nil, "summarize the file", nil, nil, files)
 
 	lastMsg := msgs[len(msgs)-1]
 	lastText := lastMsg.Content

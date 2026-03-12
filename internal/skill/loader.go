@@ -19,9 +19,9 @@ type SkillInfo struct {
 	Author      string
 	Slug        string
 	MainFile    string
-	Config      json.RawMessage
-	Permissions json.RawMessage
-	ToolDefs    json.RawMessage
+	Config      model.JSON
+	Permissions model.JSON
+	ToolDefs    model.JSON
 }
 
 // ClawHub 的 _meta.json 格式
@@ -85,13 +85,16 @@ func parseManifestFormat(dirPath string) (*SkillInfo, error) {
 	}
 
 	if len(manifest.Permissions) > 0 {
-		info.Permissions, _ = json.Marshal(manifest.Permissions)
+		data, _ := json.Marshal(manifest.Permissions)
+		info.Permissions = model.JSON(data)
 	}
 	if len(manifest.Config) > 0 {
-		info.Config, _ = json.Marshal(manifest.Config)
+		data, _ := json.Marshal(manifest.Config)
+		info.Config = model.JSON(data)
 	}
 	if len(manifest.Tools) > 0 {
-		info.ToolDefs, _ = json.Marshal(manifest.Tools)
+		data, _ := json.Marshal(manifest.Tools)
+		info.ToolDefs = model.JSON(data)
 	}
 
 	return info, nil

@@ -11,7 +11,7 @@ import (
 	"math/rand/v2"
 	"time"
 
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/result"
+	"github.com/chowyu12/go-ai-agent/internal/tool/result"
 	"github.com/google/uuid"
 )
 

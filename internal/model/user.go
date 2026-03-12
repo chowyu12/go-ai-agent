@@ -10,11 +10,11 @@ const (
 )
 
 type User struct {
-	ID        int64     `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"`
-	Role      Role      `json:"role"`
-	Enabled   bool      `json:"enabled"`
+	ID        int64     `json:"id" gorm:"primaryKey;autoIncrement"`
+	Username  string    `json:"username" gorm:"uniqueIndex;size:100;not null"`
+	Password  string    `json:"-" gorm:"size:255;not null"`
+	Role      Role      `json:"role" gorm:"size:20;not null;default:guest"`
+	Enabled   bool      `json:"enabled" gorm:"not null;default:true"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

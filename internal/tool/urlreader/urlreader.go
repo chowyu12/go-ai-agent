@@ -12,7 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"golang.org/x/net/html/charset"
 
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/result"
+	"github.com/chowyu12/go-ai-agent/internal/tool/result"
 )
 
 func Handler(ctx context.Context, args string) (string, error) {

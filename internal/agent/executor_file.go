@@ -16,7 +16,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools"
+	"github.com/chowyu12/go-ai-agent/internal/tool"
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/parser"
 	"github.com/chowyu12/go-ai-agent/internal/workspace"
@@ -202,7 +202,7 @@ func (e *Executor) buildToolResponseParts(ctx context.Context, toolCallID, toolN
 		return toolMsg(toolResult), nil
 	}
 
-	fr := tools.ParseFileResult(toolResult)
+	fr := tool.ParseFileResult(toolResult)
 	if fr == nil {
 		return toolMsg(toolResult), nil
 	}

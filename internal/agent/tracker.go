@@ -45,9 +45,10 @@ func (t *StepTracker) RecordStep(ctx context.Context, stepType model.StepType, n
 	order := t.stepOrder
 	t.mu.Unlock()
 
-	var metaJSON json.RawMessage
+	var metaJSON model.JSON
 	if meta != nil {
-		metaJSON, _ = json.Marshal(meta)
+		data, _ := json.Marshal(meta)
+		metaJSON = model.JSON(data)
 	}
 
 	step := &model.ExecutionStep{

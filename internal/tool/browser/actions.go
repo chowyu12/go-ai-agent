@@ -16,7 +16,7 @@ import (
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/result"
+	"github.com/chowyu12/go-ai-agent/internal/tool/result"
 )
 
 func (bm *browserManager) actionNavigate(_ context.Context, p browserParams) (string, error) {

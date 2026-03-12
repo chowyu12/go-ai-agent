@@ -9,8 +9,8 @@
 ### Agent 管理
 
 - Agent 增删改查，支持设置名称、UUID、系统提示词、模型参数（温度、最大 token 等）
-- 每个 Agent 可关联多个工具（Tools）、技能（Skills）和子 Agent
-- 支持工具优先执行策略，Agent 自动判断是否需要调用工具
+- 每个 Agent 可关联多个工具（Tools）、技能（Skills）和 MCP 服务
+- 支持工具优先执行策略，Agent 自动判断是否需要调用工具（Function Calling）
 
 ### 模型供应商
 
@@ -20,9 +20,12 @@
 
 ### 工具系统
 
-- 内置工具：获取当前时间、UUID 生成、计算器、Base64 编解码、JSON 格式化、文本哈希、随机数生成, 脚本执行
+- 内置工具：获取当前时间、UUID 生成、计算器、Base64 编解码、JSON 格式化、文本哈希、随机数生成、脚本执行、代码解释器
 - HTTP 工具：天气查询、IP 查询、URL 内容读取
+- 浏览器自动化：33 种操作（导航、截图、快照、点击、输入、Cookie/Storage 管理、Console/Network 监控、设备仿真等）
+- 代码解释器：支持 Python/JavaScript/Shell，沙箱执行，适用于数据处理、数学计算、文件生成、格式转换等
 - 支持自定义 HTTP 工具和脚本工具
+- MCP 协议客户端，支持接入 MCP 远程工具服务
 - 工具执行过程全链路追踪
 
 ### 技能系统
@@ -73,14 +76,14 @@
 ### 对话与记忆
 
 - 支持多轮对话，自动维护上下文
-- 对话历史持久化存储（MySQL）
+- 对话历史持久化存储（MySQL / PostgreSQL / SQLite）
 - 支持流式（SSE）和阻塞式两种响应模式
 - 流式响应实时展示执行步骤
 
 ### 执行日志
 
 - 完整记录每次 Agent 调用的执行链路
-- 详细记录每个步骤：LLM 调用、工具调用、子 Agent 调用
+- 详细记录每个步骤：LLM 调用、工具调用、技能匹配
 - 包含输入输出、耗时、Token 用量、错误信息等
 
 ### 用户系统
@@ -105,152 +108,11 @@
 | 层级    | 技术                                               |
 | ------- | -------------------------------------------------- |
 | 后端    | Go 1.25、net/http、logrus                          |
-| AI 编排 | langchaingo（LLM 调用、Function Calling）          |
-| 数据库  | MySQL                                              |
+| AI 编排 | Function Calling（openai-go SDK）                  |
+| ORM     | GORM（MySQL / PostgreSQL / SQLite）                |
 | 认证    | JWT（golang-jwt/v5）、bcrypt                       |
 | 前端    | Vue 3、TypeScript、Element Plus、Pinia、Vue Router |
 | 构建    | Go embed、Vite                                     |
-
-## 系统架构
-
-```mermaid
-flowchart TB
-    subgraph client [客户端]
-        WebUI[Web UI - Vue 3]
-        RestAPI[REST / SSE API]
-    end
-
-    subgraph gateway [HTTP 网关]
-        MW[Logger - CORS - JWT Auth]
-        Router[ServeMux 路由]
-    end
-
-    subgraph handlers [Handler 层]
-        ChatH[ChatHandler]
-        AgentH[AgentHandler]
-        ToolH[ToolHandler]
-        SkillH[SkillHandler]
-        ProvH[ProviderHandler]
-        OtherH[Auth / MCP / File]
-    end
-
-    subgraph engine [Agent 执行引擎]
-        Executor[Executor]
-        Prompt[PromptBuilder]
-        ToolReg[ToolRegistry]
-        Memory[MemoryManager]
-        Tracker[StepTracker]
-    end
-
-    subgraph tools [工具层]
-        Builtin[内置工具 - time/uuid/calc/hash]
-        BrowserT[Browser - 33 actions]
-        CmdT[Shell 命令执行]
-        HttpT[HTTP 调用]
-        McpT[MCP Client]
-        OtherT[Cron / URL Reader]
-    end
-
-    subgraph skills [技能系统]
-        Loader[SkillLoader]
-        Runner[SkillRunner - JS/Python]
-        ClawHubC[ClawHub Client]
-    end
-
-    subgraph llm [LLM 供应商]
-        Factory[ProviderFactory]
-        Models[OpenAI / Qwen / Kimi / OpenRouter]
-    end
-
-    subgraph storage [持久化]
-        Store[(MySQL)]
-        WS[Workspace ~/.go-agent/]
-    end
-
-    WebUI --> MW
-    RestAPI --> MW
-    MW --> Router
-
-    Router --> ChatH
-    Router --> AgentH
-    Router --> ToolH
-    Router --> SkillH
-    Router --> ProvH
-    Router --> OtherH
-
-    ChatH --> Executor
-    Executor --> Prompt
-    Executor --> ToolReg
-    Executor --> Memory
-    Executor --> Tracker
-
-    ToolReg --> Builtin
-    ToolReg --> BrowserT
-    ToolReg --> CmdT
-    ToolReg --> HttpT
-    ToolReg --> McpT
-    ToolReg --> OtherT
-
-    Executor --> Loader
-    Executor --> Runner
-    SkillH --> ClawHubC
-
-    Executor --> Factory
-    Factory --> Models
-
-    ChatH --> Store
-    AgentH --> Store
-    ToolH --> Store
-    SkillH --> Store
-    Memory --> Store
-    Tracker --> Store
-    Loader --> WS
-    Runner --> WS
-    ClawHubC --> WS
-```
-
-## Agent 执行流程
-
-```mermaid
-sequenceDiagram
-    participant C as Client
-    participant H as ChatHandler
-    participant E as Executor
-    participant LLM as LLM Provider
-    participant T as Tools
-    participant DB as MySQL
-
-    C->>H: POST /chat/stream
-
-    Note over E: Phase 1 - prepare
-    H->>E: ExecuteStream
-    E->>DB: Load Agent + Provider + Tools + Skills
-    E->>DB: GetOrCreate Conversation
-    E->>E: Connect MCP / Build SubAgent Tools / Load Files
-
-    Note over E: Phase 2 - Build Messages
-    E->>E: System Prompt with skill instructions
-    E->>E: History messages + User message + Files
-    E->>E: Build LLM tool definitions
-
-    Note over E: Phase 3 - Tool Calling Loop
-    loop Until LLM stops calling tools
-        E->>LLM: Stream completion request
-        LLM-->>E: Text delta + tool_calls
-        E-->>C: SSE delta text
-        opt If tool_calls present
-            E->>T: Execute each tool
-            T-->>E: Tool results
-            E-->>C: SSE step events
-            Note over E: Append results to messages
-        end
-    end
-
-    Note over E: Phase 4 - Persist Results
-    E->>DB: Save user + assistant messages
-    E->>DB: Record execution steps
-    E-->>C: SSE done + final steps
-```
 
 ## 项目结构
 
@@ -262,19 +124,28 @@ go-ai-agent/
 ├── etc/
 │   └── config.yaml          # 配置文件
 ├── internal/
-│   ├── agent/               # Agent 执行器、工具注册、记忆管理、步骤追踪
-│   │   └── tools/           # 工具实现（builtin/http/command/browser/cron/mcp）
+│   ├── agent/               # Agent 编排器（Executor + 工具注册 + 记忆 + 步骤追踪）
+│   ├── auth/                # 认证中间件
 │   ├── config/              # 配置解析
-│   ├── handler/             # HTTP Handler（Agent/Provider/Tool/Skill/MCP/Chat/Auth）
+│   ├── handler/             # HTTP Handler（Agent/Provider/Tool/Skill/MCP/Chat/Auth/File）
 │   ├── model/               # 领域模型定义
+│   ├── parser/              # 文件内容解析（PDF/文本提取）
 │   ├── provider/            # LLM Provider 适配层
 │   ├── seed/                # 初始化种子数据（默认工具和技能）
 │   ├── skill/               # 技能加载器、运行器
 │   │   └── clawhub/         # ClawHub 市场客户端（下载/安装）
-│   ├── workspace/           # 统一工作空间管理（~/.go-agent/）
-│   └── store/
-│       └── mysql/           # MySQL 数据访问实现
-├── migrations/              # SQL 迁移脚本
+│   ├── store/
+│   │   └── gormstore/       # GORM 数据访问（MySQL/PG/SQLite）
+│   ├── tool/                # 工具实现
+│   │   ├── browser/         # 浏览器自动化（33 种操作）
+│   │   ├── builtin/         # 内置工具（time/uuid/calc/hash/base64/random）
+│   │   ├── codeinterp/      # 代码解释器（Python/JS/Shell 沙箱）
+│   │   ├── cron/            # Cron 表达式解析
+│   │   ├── crontab/         # 定时任务管理
+│   │   ├── mcp/             # MCP 协议客户端
+│   │   ├── result/          # 工具结果格式化
+│   │   └── urlreader/       # URL 内容读取
+│   └── workspace/           # 统一工作空间管理（~/.go-agent/）
 ├── pkg/
 │   ├── httputil/            # HTTP 响应工具
 │   └── sse/                 # SSE 流式响应工具
@@ -297,7 +168,7 @@ go-ai-agent/
 
 - Go 1.25+
 - Node.js 18+
-- MySQL 8.0+
+- 数据库（任选其一）：MySQL 8.0+ / PostgreSQL 14+ / SQLite 3
 
 ### 1. 克隆项目
 
@@ -306,27 +177,42 @@ git clone https://github.com/chowyu12/go-ai-agent.git
 cd go-ai-agent
 ```
 
-### 2. 初始化数据库
+### 2. 配置数据库
 
-```bash
-mysql -u root -p -e "CREATE DATABASE go_ai_agent DEFAULT CHARSET utf8mb4"
-mysql -u root -p go_ai_agent < migrations/001_init.sql
-mysql -u root -p go_ai_agent < migrations/002_execution_steps.sql
-mysql -u root -p go_ai_agent < migrations/003_users.sql
+编辑 `etc/config.yaml`，选择一种数据库：
+
+**MySQL**（推荐生产环境）：
+
+```yaml
+database:
+  driver: mysql
+  dsn: "user:password@tcp(127.0.0.1:3306)/go_ai_agent?charset=utf8mb4&parseTime=True&loc=Local"
 ```
 
-### 3. 修改配置
+**PostgreSQL**：
 
-编辑 `etc/config.yaml`，填入数据库连接信息：
+```yaml
+database:
+  driver: postgres
+  dsn: "host=127.0.0.1 user=postgres password=xxx dbname=go_ai_agent port=5432 sslmode=disable"
+```
+
+**SQLite**（零配置，适合开发/单机部署）：
+
+```yaml
+database:
+  driver: sqlite
+  dsn: "go_ai_agent.db"
+```
+
+> 启动时 GORM 会自动创建/迁移表结构，无需手动执行 SQL。
+
+### 3. 修改其他配置
 
 ```yaml
 server:
   host: "0.0.0.0"
   port: 8080
-
-database:
-  driver: mysql
-  dsn: "user:password@tcp(127.0.0.1:3306)/go_ai_agent?charset=utf8mb4&parseTime=True&loc=Local"
 
 log:
   level: info

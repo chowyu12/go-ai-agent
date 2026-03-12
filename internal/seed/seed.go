@@ -143,9 +143,9 @@ func seedSkillsLegacy(ctx context.Context, s store.Store) {
 	}
 }
 
-func mustJSON(v any) json.RawMessage {
+func mustJSON(v any) model.JSON {
 	data, _ := json.Marshal(v)
-	return data
+	return model.JSON(data)
 }
 
 type builtinSkill struct {

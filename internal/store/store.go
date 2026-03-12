@@ -40,8 +40,6 @@ type AgentStore interface {
 	GetAgentTools(ctx context.Context, agentID int64) ([]model.Tool, error)
 	SetAgentSkills(ctx context.Context, agentID int64, skillIDs []int64) error
 	GetAgentSkills(ctx context.Context, agentID int64) ([]model.Skill, error)
-	SetAgentChildren(ctx context.Context, agentID int64, childIDs []int64) error
-	GetAgentChildren(ctx context.Context, agentID int64) ([]model.Agent, error)
 
 	SetAgentMCPServers(ctx context.Context, agentID int64, mcpServerIDs []int64) error
 	GetAgentMCPServers(ctx context.Context, agentID int64) ([]model.MCPServer, error)

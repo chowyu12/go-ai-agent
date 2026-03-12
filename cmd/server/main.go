@@ -14,12 +14,12 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
-	"github.com/chowyu12/go-ai-agent/internal/agent/tools/browser"
+	"github.com/chowyu12/go-ai-agent/internal/tool/browser"
 	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/config"
 	"github.com/chowyu12/go-ai-agent/internal/handler"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
-	"github.com/chowyu12/go-ai-agent/internal/store/mysql"
+	"github.com/chowyu12/go-ai-agent/internal/store/gormstore"
 	"github.com/chowyu12/go-ai-agent/internal/workspace"
 	"github.com/chowyu12/go-ai-agent/web"
 )
@@ -49,7 +49,7 @@ func main() {
 		cfg.Upload.Dir = workspace.Uploads()
 	}
 
-	store, err := mysql.New(cfg.Database)
+	store, err := gormstore.New(cfg.Database)
 	if err != nil {
 		log.WithError(err).Fatal("connect database failed")
 	}
