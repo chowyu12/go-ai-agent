@@ -2,7 +2,6 @@ package agent
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -158,40 +157,29 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 		}
 	}
 
+	var strategies []string
 	if hasTools {
-		sb.WriteString("\n\n## 可用工具\n\n")
-		for _, t := range enabledTools {
-			desc := cmp.Or(t.Description, t.Name)
-			line := fmt.Sprintf("- **%s**: %s", t.Name, desc)
-			if sn, ok := toolSkillMap[t.Name]; ok {
-				line += fmt.Sprintf(" (技能: %s)", sn)
-			}
-			sb.WriteString(line + "\n")
-		}
-
-		strategies := []string{
-			"**意图识别**: 分析用户问题，判断是否与已有技能或工具的能力匹配",
+		strategies = append(strategies,
 			"**工具优先**: 当问题可通过工具获得更准确或实时的结果时，必须调用工具，禁止仅凭内置知识推测",
-		}
-		if hasSkills {
-			strategies = append(strategies, "**技能路由**: 若问题匹配某项技能，优先使用该技能及其关联工具")
-		}
-		if hasSkillDirs {
-			strategies = append(strategies, "**技能详情**: 需要使用某项技能时，先用 read_file 读取其详细指令文件，了解完整用法后再执行。指令文件中可能包含子文档链接，按需读取")
-		}
+		)
+	}
+	if hasSkills {
+		strategies = append(strategies, "**技能路由**: 若问题匹配某项技能，优先使用该技能及其关联工具")
+	}
+	if hasSkillDirs {
+		strategies = append(strategies, "**技能详情**: 需要使用某项技能时，先用 read_file 读取其详细指令文件，了解完整用法后再执行。指令文件中的相对路径以 SKILL.md 所在目录为基准，例如 SKILL.md 路径为 /a/b/SKILL.md，引用 ./refs/doc.md 时应读取 /a/b/refs/doc.md")
+	}
+	if hasTools {
 		strategies = append(strategies,
 			"**组合调用**: 复杂问题可串联或并行调用多个工具",
 			"**结果驱动**: 基于工具返回的真实数据生成回答，不编造或臆测信息",
 		)
-
-		sb.WriteString("\n## 工具使用策略\n\n")
+	}
+	if len(strategies) > 0 {
+		sb.WriteString("\n\n## 执行策略\n\n")
 		for i, s := range strategies {
 			sb.WriteString(fmt.Sprintf("%d. %s\n", i+1, s))
 		}
-
-		l.WithFields(log.Fields{
-			"agent_tools": len(enabledTools),
-		}).Debug("[Prompt]  tool catalog injected")
 	}
 
 	result := sb.String()
