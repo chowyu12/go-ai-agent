@@ -96,7 +96,7 @@
               <el-button
                 @click="fetchRemoteModelsForProvider"
                 :loading="remoteFetching"
-                :disabled="!form.id"
+                :disabled="!form.api_key"
                 title="从 API 拉取模型列表"
               >
                 <el-icon><Refresh /></el-icon>
@@ -205,16 +205,25 @@ function suggestModels(query: string, cb: (results: { value: string }[]) => void
 }
 
 async function onAutocompleteFocus() {
-  if (!form.value.id || remoteFetchedDone.value || remoteFetching.value) return
+  if (remoteFetchedDone.value || remoteFetching.value || !form.value.api_key) return
   await fetchRemoteModelsForProvider()
 }
 
 async function fetchRemoteModelsForProvider() {
-  if (!form.value.id || remoteFetching.value) return
+  if (!form.value.api_key || remoteFetching.value) return
   remoteFetching.value = true
   remoteFetchMsg.value = ''
   try {
-    const res: any = await providerApi.remoteModels(form.value.id)
+    let res: any
+    if (form.value.id) {
+      res = await providerApi.remoteModels(form.value.id)
+    } else {
+      res = await providerApi.remoteModelsByConfig({
+        type: form.value.type,
+        base_url: form.value.base_url,
+        api_key: form.value.api_key,
+      })
+    }
     remoteModelsList.value = res.data || []
     remoteFetchedDone.value = true
     remoteFetchOk.value = true

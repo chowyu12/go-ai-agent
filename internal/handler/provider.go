@@ -27,6 +27,7 @@ func (h *ProviderHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("DELETE /api/v1/providers/{id}", h.Delete)
 	mux.HandleFunc("GET /api/v1/providers/{id}/models", h.ListModels)
 	mux.HandleFunc("GET /api/v1/providers/{id}/models/remote", h.FetchRemoteModels)
+	mux.HandleFunc("POST /api/v1/providers/models/remote", h.FetchRemoteModelsByConfig)
 }
 
 func (h *ProviderHandler) Create(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +141,29 @@ func (h *ProviderHandler) FetchRemoteModels(w http.ResponseWriter, r *http.Reque
 		httputil.NotFound(w, "provider not found")
 		return
 	}
+	models, err := provider.FetchRemoteModels(r.Context(), p)
+	if err != nil {
+		httputil.Error(w, http.StatusBadGateway, "拉取远程模型列表失败: "+err.Error())
+		return
+	}
+	httputil.OK(w, models)
+}
+
+func (h *ProviderHandler) FetchRemoteModelsByConfig(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Type    model.ProviderType `json:"type"`
+		BaseURL string             `json:"base_url"`
+		APIKey  string             `json:"api_key"`
+	}
+	if err := httputil.BindJSON(r, &req); err != nil {
+		httputil.BadRequest(w, "invalid request body")
+		return
+	}
+	if req.APIKey == "" {
+		httputil.BadRequest(w, "api_key is required")
+		return
+	}
+	p := &model.Provider{Type: req.Type, BaseURL: req.BaseURL, APIKey: req.APIKey}
 	models, err := provider.FetchRemoteModels(r.Context(), p)
 	if err != nil {
 		httputil.Error(w, http.StatusBadGateway, "拉取远程模型列表失败: "+err.Error())

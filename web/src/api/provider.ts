@@ -29,4 +29,6 @@ export const providerApi = {
   delete: (id: number) => request.delete(`/providers/${id}`),
   models: (id: number) => request.get(`/providers/${id}/models`),
   remoteModels: (id: number) => request.get(`/providers/${id}/models/remote`),
+  remoteModelsByConfig: (data: { type: string; base_url: string; api_key: string }) =>
+    request.post('/providers/models/remote', data),
 }
