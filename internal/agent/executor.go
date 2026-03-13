@@ -431,6 +431,9 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 		ec.l.WithFields(log.Fields{"round": i + 1, "duration": iterDur, "tool_calls": tcNames}).Info("[LLM] << tool calls requested")
 
 		messages = append(messages, choice.Message)
+		if err := e.memory.SaveToolCallAssistant(ctx, ec.conv.ID, choice.Message.Content, choice.Message.ToolCalls); err != nil {
+			ec.l.WithError(err).Warn("[Memory] save tool call assistant failed")
+		}
 
 		var pendingParts []openai.ChatMessagePart
 		for _, tc := range choice.Message.ToolCalls {
@@ -447,6 +450,9 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 					ToolCallID: tc.ID,
 					Name:       toolName,
 				})
+				if err := e.memory.SaveToolResult(ctx, ec.conv.ID, tc.ID, toolName, errMsg); err != nil {
+					ec.l.WithError(err).Warn("[Memory] save tool result failed")
+				}
 				continue
 			}
 
@@ -465,6 +471,9 @@ func (e *Executor) execute(ctx context.Context, ec *execContext) (*ExecuteResult
 
 			toolMsg, fileParts := e.buildToolResponseParts(ctx, tc.ID, toolName, toolResult, callErr == nil, ec.l)
 			messages = append(messages, toolMsg)
+			if err := e.memory.SaveToolResult(ctx, ec.conv.ID, tc.ID, toolName, toolMsg.Content); err != nil {
+				ec.l.WithError(err).Warn("[Memory] save tool result failed")
+			}
 			pendingParts = append(pendingParts, fileParts...)
 		}
 		if len(pendingParts) > 0 {
@@ -653,6 +662,9 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 			Content:   content,
 			ToolCalls: toolCalls,
 		})
+		if err := e.memory.SaveToolCallAssistant(ctx, ec.conv.ID, content, toolCalls); err != nil {
+			ec.l.WithError(err).Warn("[Memory] save tool call assistant failed")
+		}
 
 		var pendingParts []openai.ChatMessagePart
 		for _, tc := range toolCalls {
@@ -669,6 +681,9 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 					ToolCallID: tc.ID,
 					Name:       toolName,
 				})
+				if err := e.memory.SaveToolResult(ctx, ec.conv.ID, tc.ID, toolName, errMsg); err != nil {
+					ec.l.WithError(err).Warn("[Memory] save tool result failed")
+				}
 				continue
 			}
 
@@ -687,6 +702,9 @@ func (e *Executor) stream(ctx context.Context, ec *execContext, chunkHandler fun
 
 			toolMsg, fileParts := e.buildToolResponseParts(ctx, tc.ID, toolName, toolResult, callErr == nil, ec.l)
 			messages = append(messages, toolMsg)
+			if err := e.memory.SaveToolResult(ctx, ec.conv.ID, tc.ID, toolName, toolMsg.Content); err != nil {
+				ec.l.WithError(err).Warn("[Memory] save tool result failed")
+			}
 			pendingParts = append(pendingParts, fileParts...)
 		}
 

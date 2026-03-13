@@ -67,6 +67,7 @@ func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, l
 		cm := openai.ChatCompletionMessage{
 			Role:       role,
 			Content:    msg.Content,
+			Name:       msg.Name,
 			ToolCallID: msg.ToolCallID,
 		}
 		if len(msg.ToolCalls) > 0 {
@@ -88,6 +89,31 @@ func (m *MemoryManager) SaveUserMessage(ctx context.Context, conversationID int6
 
 func (m *MemoryManager) SaveAssistantMessage(ctx context.Context, conversationID int64, content string, tokensUsed int) (int64, error) {
 	return m.saveMessage(ctx, conversationID, "assistant", content, tokensUsed)
+}
+
+func (m *MemoryManager) SaveToolCallAssistant(ctx context.Context, conversationID int64, content string, toolCalls []openai.ToolCall) error {
+	tcJSON, err := json.Marshal(toolCalls)
+	if err != nil {
+		return fmt.Errorf("marshal tool calls: %w", err)
+	}
+	msg := &model.Message{
+		ConversationID: conversationID,
+		Role:           "assistant",
+		Content:        content,
+		ToolCalls:      tcJSON,
+	}
+	return m.store.CreateMessage(ctx, msg)
+}
+
+func (m *MemoryManager) SaveToolResult(ctx context.Context, conversationID int64, toolCallID, toolName, content string) error {
+	msg := &model.Message{
+		ConversationID: conversationID,
+		Role:           "tool",
+		Content:        content,
+		ToolCallID:     toolCallID,
+		Name:           toolName,
+	}
+	return m.store.CreateMessage(ctx, msg)
 }
 
 func (m *MemoryManager) saveMessage(ctx context.Context, conversationID int64, role, content string, tokensUsed int) (int64, error) {

@@ -73,12 +73,24 @@ func (s *GormStore) CreateMessage(ctx context.Context, m *model.Message) error {
 	return s.db.WithContext(ctx).Create(m).Error
 }
 
-func (s *GormStore) ListMessages(ctx context.Context, conversationID int64, limit int) ([]model.Message, error) {
+func (s *GormStore) ListMessages(ctx context.Context, conversationID int64, maxTurns int) ([]model.Message, error) {
+	var userMsgIDs []int64
+	if err := s.db.WithContext(ctx).
+		Model(&model.Message{}).
+		Where("conversation_id = ? AND role = ?", conversationID, "user").
+		Order("id DESC").
+		Limit(maxTurns).
+		Pluck("id", &userMsgIDs).Error; err != nil {
+		return nil, err
+	}
+	if len(userMsgIDs) == 0 {
+		return nil, nil
+	}
+
 	var msgs []model.Message
 	if err := s.db.WithContext(ctx).
-		Where("conversation_id = ?", conversationID).
+		Where("conversation_id = ? AND id >= ?", conversationID, userMsgIDs[len(userMsgIDs)-1]).
 		Order("id ASC").
-		Limit(limit).
 		Find(&msgs).Error; err != nil {
 		return nil, err
 	}

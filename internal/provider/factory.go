@@ -145,7 +145,7 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 		if len(logBody) > 50*1024 {
 			logBody = truncateBase64(logBody)
 		}
-		l.WithField("body", logBody).Trace("[LLM-HTTP] >> request")
+		l.WithField("body", logBody).Info("[LLM-HTTP] >> request")
 	}
 
 	resp, err := t.inner.RoundTrip(req)
@@ -167,6 +167,6 @@ func (t *loggingTransport) RoundTrip(req *http.Request) (*http.Response, error) 
 	}
 	resp.Body = io.NopCloser(bytes.NewReader(respBody))
 
-	l.WithFields(log.Fields{"status": resp.StatusCode, "body": string(respBody)}).Trace("[LLM-HTTP] << response")
+	l.WithFields(log.Fields{"status": resp.StatusCode, "body": string(respBody)}).Info("[LLM-HTTP] << response")
 	return resp, nil
 }

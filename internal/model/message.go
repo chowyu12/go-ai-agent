@@ -19,6 +19,7 @@ type Message struct {
 	Content        string    `json:"content" gorm:"type:text"`
 	ToolCalls      JSON      `json:"tool_calls,omitzero" gorm:"type:text"`
 	ToolCallID     string    `json:"tool_call_id,omitzero" gorm:"size:100"`
+	Name           string    `json:"name,omitzero" gorm:"size:100"`
 	TokensUsed     int       `json:"tokens_used" gorm:"default:0"`
 	ParentStepID   int64     `json:"parent_step_id,omitzero" gorm:"default:0"`
 	CreatedAt      time.Time `json:"created_at"`
