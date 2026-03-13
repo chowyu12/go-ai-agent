@@ -47,36 +47,92 @@ func (m *MemoryManager) GetOrCreateConversation(ctx context.Context, conversatio
 	return conv, nil
 }
 
-func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, limit int) ([]openai.ChatCompletionMessage, error) {
-	msgs, err := m.store.ListMessages(ctx, conversationID, limit)
+const recentTurnsFullDetail = 3
+
+func (m *MemoryManager) LoadHistory(ctx context.Context, conversationID int64, maxTurns int) ([]openai.ChatCompletionMessage, error) {
+	msgs, err := m.store.ListMessages(ctx, conversationID, maxTurns)
 	if err != nil {
 		return nil, err
 	}
+	if len(msgs) == 0 {
+		return nil, nil
+	}
+
+	turns := splitTurns(msgs)
+	total := len(turns)
 
 	var result []openai.ChatCompletionMessage
-	for _, msg := range msgs {
-		role := openai.ChatMessageRoleUser
-		switch msg.Role {
-		case "assistant":
-			role = openai.ChatMessageRoleAssistant
-		case "system":
-			role = openai.ChatMessageRoleSystem
-		case "tool":
-			role = openai.ChatMessageRoleTool
+	for i, turn := range turns {
+		if i >= total-recentTurnsFullDetail {
+			for _, msg := range turn {
+				result = append(result, toOpenAIMessage(msg))
+			}
+		} else {
+			for _, msg := range compactTurn(turn) {
+				result = append(result, toOpenAIMessage(msg))
+			}
 		}
-		cm := openai.ChatCompletionMessage{
-			Role:       role,
-			Content:    msg.Content,
-			Name:       msg.Name,
-			ToolCallID: msg.ToolCallID,
-		}
-		if len(msg.ToolCalls) > 0 {
-			_ = json.Unmarshal(msg.ToolCalls, &cm.ToolCalls)
-		}
-		result = append(result, cm)
 	}
 	return result, nil
 }
+
+func splitTurns(msgs []model.Message) [][]model.Message {
+	var turns [][]model.Message
+	var cur []model.Message
+	for _, msg := range msgs {
+		if msg.Role == "user" && len(cur) > 0 {
+			turns = append(turns, cur)
+			cur = nil
+		}
+		cur = append(cur, msg)
+	}
+	if len(cur) > 0 {
+		turns = append(turns, cur)
+	}
+	return turns
+}
+
+func compactTurn(turn []model.Message) []model.Message {
+	var result []model.Message
+	var lastAssistant *model.Message
+
+	for i := range turn {
+		msg := &turn[i]
+		if msg.Role == "user" {
+			result = append(result, *msg)
+		}
+		if msg.Role == "assistant" && len(msg.ToolCalls) == 0 && msg.Content != "" {
+			lastAssistant = msg
+		}
+	}
+	if lastAssistant != nil {
+		result = append(result, *lastAssistant)
+	}
+	return result
+}
+
+func toOpenAIMessage(msg model.Message) openai.ChatCompletionMessage {
+	role := openai.ChatMessageRoleUser
+	switch msg.Role {
+	case "assistant":
+		role = openai.ChatMessageRoleAssistant
+	case "system":
+		role = openai.ChatMessageRoleSystem
+	case "tool":
+		role = openai.ChatMessageRoleTool
+	}
+	cm := openai.ChatCompletionMessage{
+		Role:       role,
+		Content:    msg.Content,
+		Name:       msg.Name,
+		ToolCallID: msg.ToolCallID,
+	}
+	if len(msg.ToolCalls) > 0 {
+		_ = json.Unmarshal(msg.ToolCalls, &cm.ToolCalls)
+	}
+	return cm
+}
+
 
 func (m *MemoryManager) SaveUserMessage(ctx context.Context, conversationID int64, content string, files []*model.File) (int64, error) {
 	msgID, err := m.saveMessage(ctx, conversationID, "user", content, 0)
