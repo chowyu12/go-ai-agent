@@ -16,26 +16,30 @@
       </template>
 
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="handler_type" label="类型" width="100">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="名称" width="160" />
+        <el-table-column label="描述" min-width="280">
+          <template #default="{ row }">
+            <span class="desc-cell">{{ row.description }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="handler_type" label="类型" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="handlerTagType(row.handler_type)" size="small">
               {{ handlerLabel(row.handler_type) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="enabled" label="状态" width="80">
+        <el-table-column prop="enabled" label="状态" width="70" align="center">
           <template #default="{ row }">
             <el-tag :type="row.enabled ? 'success' : 'danger'" size="small">{{ row.enabled ? '启用' : '禁用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="timeout" label="超时(秒)" width="100">
+        <el-table-column prop="timeout" label="超时(秒)" width="80" align="center">
           <template #default="{ row }">{{ row.timeout || 30 }}</template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
+        <el-table-column prop="created_at" label="创建时间" width="170" show-overflow-tooltip />
+        <el-table-column v-if="authStore.isAdmin" label="操作" width="120" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="router.push({ name: 'ToolEdit', params: { id: row.id } })">编辑</el-button>
             <el-popconfirm title="确定删除？" @confirm="handleDelete(row.id)">
@@ -109,4 +113,14 @@ onMounted(loadData)
 <style scoped>
 .card-header { display: flex; justify-content: space-between; align-items: center; }
 .card-title { font-size: 16px; font-weight: 600; }
+.desc-cell {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.5;
+  font-size: 13px;
+  color: #606266;
+}
 </style>

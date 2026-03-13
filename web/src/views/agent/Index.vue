@@ -23,28 +23,34 @@
       </template>
 
       <el-table :data="list" v-loading="loading" stripe>
-        <el-table-column prop="id" label="ID" width="80" />
-        <el-table-column prop="name" label="名称" min-width="120" />
-        <el-table-column prop="uuid" label="UUID" width="140" show-overflow-tooltip />
-        <el-table-column prop="model_name" label="模型" width="160" />
-        <el-table-column prop="temperature" label="温度" width="80" />
-        <el-table-column prop="max_tokens" label="Max Tokens" width="110" />
-        <el-table-column prop="timeout" label="超时(秒)" width="100" />
-        <el-table-column label="API Token" width="200">
+        <el-table-column prop="id" label="ID" width="60" />
+        <el-table-column prop="name" label="名称" width="140" show-overflow-tooltip />
+        <el-table-column prop="model_name" label="模型" width="160" show-overflow-tooltip />
+        <el-table-column prop="temperature" label="温度" width="60" align="center" />
+        <el-table-column prop="max_tokens" label="Tokens" width="80" align="center" />
+        <el-table-column prop="timeout" label="超时" width="60" align="center" />
+        <el-table-column label="API Token" min-width="220">
           <template #default="{ row }">
-            <div v-if="row.token" style="display: flex; align-items: center; gap: 4px">
-              <span class="token-cell">{{ row.token }}</span>
-              <el-tooltip :content="copiedId === row.id ? '已复制' : '复制'" placement="top">
-                <el-button link size="small" @click="copyToken(row)">
-                  <el-icon><Select v-if="copiedId === row.id" /><DocumentCopy v-else /></el-icon>
-                </el-button>
-              </el-tooltip>
+            <div v-if="row.token" class="token-wrap">
+              <span class="token-cell">{{ visibleTokenId === row.id ? row.token : maskToken(row.token) }}</span>
+              <span class="token-actions">
+                <el-tooltip :content="visibleTokenId === row.id ? '隐藏' : '显示'" placement="top">
+                  <el-button link size="small" @click="toggleTokenVisible(row.id)">
+                    <el-icon><Hide v-if="visibleTokenId === row.id" /><View v-else /></el-icon>
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip :content="copiedId === row.id ? '已复制' : '复制'" placement="top">
+                  <el-button link size="small" @click="copyToken(row)">
+                    <el-icon><Select v-if="copiedId === row.id" /><DocumentCopy v-else /></el-icon>
+                  </el-button>
+                </el-tooltip>
+              </span>
             </div>
-            <span v-else style="color: #c0c4cc; font-size: 12px">-</span>
+            <span v-else class="token-empty">-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" label="创建时间" width="180" />
-        <el-table-column v-if="authStore.isAdmin" label="操作" width="160" fixed="right">
+        <el-table-column prop="created_at" label="创建时间" width="165" show-overflow-tooltip />
+        <el-table-column v-if="authStore.isAdmin" label="操作" width="110" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="$router.push({ name: 'AgentEdit', params: { id: row.id } })">编辑</el-button>
             <el-popconfirm title="确定删除？" @confirm="handleDelete(row.id)">
@@ -73,7 +79,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { DocumentCopy, Select } from '@element-plus/icons-vue'
+import { DocumentCopy, Select, View, Hide } from '@element-plus/icons-vue'
 import { agentApi, type Agent } from '../../api/agent'
 import { useAuthStore } from '@/stores/auth'
 
@@ -104,6 +110,17 @@ async function handleDelete(id: number) {
   } catch { ElMessage.error('删除失败') }
 }
 
+const visibleTokenId = ref<number | null>(null)
+
+function maskToken(token: string): string {
+  if (token.length <= 8) return '••••••••'
+  return token.slice(0, 3) + '••••••••' + token.slice(-4)
+}
+
+function toggleTokenVisible(id: number) {
+  visibleTokenId.value = visibleTokenId.value === id ? null : id
+}
+
 function copyToken(row: Agent) {
   if (!row.token) return
   navigator.clipboard.writeText(row.token).then(() => {
@@ -125,13 +142,28 @@ onMounted(loadData)
   font-size: 16px;
   font-weight: 600;
 }
+.token-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 .token-cell {
   font-family: monospace;
   font-size: 12px;
-  color: #606266;
+  color: #909399;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 140px;
+  flex: 1;
+  min-width: 0;
+}
+.token-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.token-empty {
+  color: #c0c4cc;
+  font-size: 12px;
 }
 </style>
