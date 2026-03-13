@@ -268,7 +268,7 @@ func (e *Executor) buildSkillManifestTools(skills []model.Skill, tracker *StepTr
 			toolSkillMap[td.Name] = sk.Name
 			var handler func(ctx context.Context, input string) (string, error)
 
-			if sk.MainFile != "" && sk.DirName != "" {
+			if sk.MainFile != "" {
 				skillDir := workspace.SkillDir(sk.DirName)
 				if skillDir != "" {
 					mainFile := sk.MainFile

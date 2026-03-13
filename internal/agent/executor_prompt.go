@@ -105,13 +105,10 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 	}
 
 	hasSkills := false
-	hasSkillDirs := false
 	for _, sk := range skills {
 		if sk.Instruction != "" || sk.Description != "" {
 			hasSkills = true
-		}
-		if sk.DirName != "" {
-			hasSkillDirs = true
+			break
 		}
 	}
 	hasTools := len(enabledTools) > 0
@@ -138,18 +135,13 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 			}
 			sb.WriteString("\n### " + sk.Name + "\n")
 
-			if sk.DirName != "" {
-				if sk.Description != "" {
-					sb.WriteString(sk.Description + "\n")
-				}
-				if skillDir := workspace.SkillDir(sk.DirName); skillDir != "" {
-					sb.WriteString("详细指令: " + filepath.Join(skillDir, "SKILL.md") + "\n")
-				}
-				l.WithField("skill", sk.Name).Debug("[Prompt]  skill summary injected (two-phase)")
-			} else {
-				sb.WriteString(sk.Instruction + "\n")
-				l.WithFields(log.Fields{"skill": sk.Name, "len": len(sk.Instruction)}).Debug("[Prompt]  skill injected (inline)")
+			if sk.Description != "" {
+				sb.WriteString(sk.Description + "\n")
 			}
+			if skillDir := workspace.SkillDir(sk.DirName); skillDir != "" {
+				sb.WriteString("详细指令: " + filepath.Join(skillDir, "SKILL.md") + "\n")
+			}
+			l.WithField("skill", sk.Name).Debug("[Prompt]  skill summary injected (two-phase)")
 
 			if names := skillToolNames[sk.Name]; len(names) > 0 {
 				sb.WriteString("关联工具: " + strings.Join(names, ", ") + "\n")
@@ -166,7 +158,7 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 	if hasSkills {
 		strategies = append(strategies, "**技能路由**: 若问题匹配某项技能，优先使用该技能及其关联工具")
 	}
-	if hasSkillDirs {
+	if hasSkills {
 		strategies = append(strategies, "**技能详情**: 需要使用某项技能时，先用 read_file 读取其详细指令文件，了解完整用法后再执行。指令文件中的相对路径以 SKILL.md 所在目录为基准，例如 SKILL.md 路径为 /a/b/SKILL.md，引用 ./refs/doc.md 时应读取 /a/b/refs/doc.md")
 	}
 	if hasTools {

@@ -91,7 +91,7 @@ func (h *SkillHandler) Create(w http.ResponseWriter, r *http.Request) {
 
 func (h *SkillHandler) ensureSkillDir(s *model.Skill) {
 	skillsDir := workspace.Skills()
-	if skillsDir == "" || s.DirName == "" {
+	if skillsDir == "" {
 		return
 	}
 	dirPath := filepath.Join(skillsDir, s.DirName)
@@ -115,9 +115,6 @@ func (h *SkillHandler) ensureSkillDir(s *model.Skill) {
 }
 
 func (h *SkillHandler) syncSkillDir(existing *model.Skill, req model.UpdateSkillReq) {
-	if existing.DirName == "" {
-		return
-	}
 	dirPath := workspace.SkillDir(existing.DirName)
 	if dirPath == "" {
 		return
