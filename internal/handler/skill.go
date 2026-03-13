@@ -4,10 +4,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	log "github.com/sirupsen/logrus"
 
@@ -70,10 +73,10 @@ func (h *SkillHandler) Create(w http.ResponseWriter, r *http.Request) {
 	if s.Source == "" {
 		s.Source = model.SkillSourceCustom
 	}
-
-	if s.DirName != "" && s.Source == model.SkillSourceCustom {
-		h.createSkillDir(s)
+	if s.DirName == "" {
+		s.DirName = toDirName(s.Name)
 	}
+	h.ensureSkillDir(s)
 
 	ctx := r.Context()
 	if err := h.store.CreateSkill(ctx, s); err != nil {
@@ -86,9 +89,9 @@ func (h *SkillHandler) Create(w http.ResponseWriter, r *http.Request) {
 	httputil.OK(w, s)
 }
 
-func (h *SkillHandler) createSkillDir(s *model.Skill) {
+func (h *SkillHandler) ensureSkillDir(s *model.Skill) {
 	skillsDir := workspace.Skills()
-	if skillsDir == "" {
+	if skillsDir == "" || s.DirName == "" {
 		return
 	}
 	dirPath := filepath.Join(skillsDir, s.DirName)
@@ -104,9 +107,74 @@ func (h *SkillHandler) createSkillDir(s *model.Skill) {
 	if data, err := json.MarshalIndent(manifest, "", "  "); err == nil {
 		os.WriteFile(filepath.Join(dirPath, "manifest.json"), data, 0o644)
 	}
-	if s.Instruction != "" {
-		os.WriteFile(filepath.Join(dirPath, "SKILL.md"), []byte(s.Instruction), 0o644)
+
+	mdPath := filepath.Join(dirPath, "SKILL.md")
+	if _, err := os.Stat(mdPath); errors.Is(err, os.ErrNotExist) && s.Instruction != "" {
+		os.WriteFile(mdPath, []byte(s.Instruction), 0o644)
 	}
+}
+
+func (h *SkillHandler) syncSkillDir(existing *model.Skill, req model.UpdateSkillReq) {
+	if existing.DirName == "" {
+		return
+	}
+	dirPath := workspace.SkillDir(existing.DirName)
+	if dirPath == "" {
+		return
+	}
+
+	if req.Instruction != nil {
+		os.WriteFile(filepath.Join(dirPath, "SKILL.md"), []byte(*req.Instruction), 0o644)
+	}
+
+	if req.Name != nil || req.Description != nil || req.Version != nil || req.Author != nil {
+		name := existing.Name
+		if req.Name != nil {
+			name = *req.Name
+		}
+		desc := existing.Description
+		if req.Description != nil {
+			desc = *req.Description
+		}
+		ver := existing.Version
+		if req.Version != nil {
+			ver = *req.Version
+		}
+		author := existing.Author
+		if req.Author != nil {
+			author = *req.Author
+		}
+		manifest := model.SkillManifest{
+			Name:        name,
+			Version:     ver,
+			Description: desc,
+			Author:      author,
+			Main:        existing.MainFile,
+		}
+		if data, err := json.MarshalIndent(manifest, "", "  "); err == nil {
+			os.WriteFile(filepath.Join(dirPath, "manifest.json"), data, 0o644)
+		}
+	}
+}
+
+func toDirName(name string) string {
+	s := strings.ToLower(strings.TrimSpace(name))
+	var buf strings.Builder
+	prevHyphen := false
+	for _, r := range s {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			buf.WriteRune(r)
+			prevHyphen = false
+		} else if !prevHyphen && buf.Len() > 0 {
+			buf.WriteByte('-')
+			prevHyphen = true
+		}
+	}
+	result := strings.TrimRight(buf.String(), "-")
+	if result == "" {
+		result = fmt.Sprintf("skill-%d", time.Now().UnixMilli())
+	}
+	return result
 }
 
 func (h *SkillHandler) Get(w http.ResponseWriter, r *http.Request) {
@@ -147,6 +215,13 @@ func (h *SkillHandler) Update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+
+	existing, err := h.store.GetSkill(ctx, id)
+	if err != nil {
+		httputil.NotFound(w, "skill not found")
+		return
+	}
+
 	if err := h.store.UpdateSkill(ctx, id, req); err != nil {
 		httputil.InternalError(w, err.Error())
 		return
@@ -154,6 +229,8 @@ func (h *SkillHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if req.ToolIDs != nil {
 		h.store.SetSkillTools(ctx, id, req.ToolIDs)
 	}
+
+	h.syncSkillDir(existing, req)
 	httputil.OK(w, nil)
 }
 

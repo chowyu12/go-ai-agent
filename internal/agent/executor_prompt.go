@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	openai "github.com/sashabaranov/go-openai"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/chowyu12/go-ai-agent/internal/model"
 	"github.com/chowyu12/go-ai-agent/internal/parser"
+	"github.com/chowyu12/go-ai-agent/internal/workspace"
 )
 
 func buildMessages(ag *model.Agent, skills []model.Skill, history []openai.ChatCompletionMessage, userMsg string, agentTools []model.Tool, toolSkillMap map[string]string, files []*model.File) []openai.ChatCompletionMessage {
@@ -103,16 +105,19 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 		}
 	}
 
-	hasSkillInstructions := false
+	hasSkills := false
+	hasSkillDirs := false
 	for _, sk := range skills {
-		if sk.Instruction != "" {
-			hasSkillInstructions = true
-			break
+		if sk.Instruction != "" || sk.Description != "" {
+			hasSkills = true
+		}
+		if sk.DirName != "" {
+			hasSkillDirs = true
 		}
 	}
 	hasTools := len(enabledTools) > 0
 
-	if !hasSkillInstructions && !hasTools {
+	if !hasSkills && !hasTools {
 		result := sb.String()
 		l.WithField("total_len", len(result)).Debug("[Prompt]  system prompt built (minimal)")
 		return result
@@ -125,19 +130,31 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 		}
 	}
 
-	if hasSkillInstructions {
+	if hasSkills {
 		sb.WriteString("\n\n## 技能\n")
 		for _, sk := range skills {
-			if sk.Instruction == "" {
-				l.WithField("skill", sk.Name).Debug("[Prompt]  skill has no instruction, skipped")
+			if sk.Instruction == "" && sk.Description == "" {
+				l.WithField("skill", sk.Name).Debug("[Prompt]  skill has no content, skipped")
 				continue
 			}
 			sb.WriteString("\n### " + sk.Name + "\n")
-			sb.WriteString(sk.Instruction + "\n")
+
+			if sk.DirName != "" {
+				if sk.Description != "" {
+					sb.WriteString(sk.Description + "\n")
+				}
+				if skillDir := workspace.SkillDir(sk.DirName); skillDir != "" {
+					sb.WriteString("详细指令: " + filepath.Join(skillDir, "SKILL.md") + "\n")
+				}
+				l.WithField("skill", sk.Name).Debug("[Prompt]  skill summary injected (two-phase)")
+			} else {
+				sb.WriteString(sk.Instruction + "\n")
+				l.WithFields(log.Fields{"skill": sk.Name, "len": len(sk.Instruction)}).Debug("[Prompt]  skill injected (inline)")
+			}
+
 			if names := skillToolNames[sk.Name]; len(names) > 0 {
 				sb.WriteString("关联工具: " + strings.Join(names, ", ") + "\n")
 			}
-			l.WithFields(log.Fields{"skill": sk.Name, "len": len(sk.Instruction)}).Debug("[Prompt]  skill injected")
 		}
 	}
 
@@ -156,8 +173,11 @@ func buildSystemPrompt(ag *model.Agent, skills []model.Skill, agentTools []model
 			"**意图识别**: 分析用户问题，判断是否与已有技能或工具的能力匹配",
 			"**工具优先**: 当问题可通过工具获得更准确或实时的结果时，必须调用工具，禁止仅凭内置知识推测",
 		}
-		if hasSkillInstructions {
+		if hasSkills {
 			strategies = append(strategies, "**技能路由**: 若问题匹配某项技能，优先使用该技能及其关联工具")
+		}
+		if hasSkillDirs {
+			strategies = append(strategies, "**技能详情**: 需要使用某项技能时，先用 read_file 读取其详细指令文件，了解完整用法后再执行。指令文件中可能包含子文档链接，按需读取")
 		}
 		strategies = append(strategies,
 			"**组合调用**: 复杂问题可串联或并行调用多个工具",
