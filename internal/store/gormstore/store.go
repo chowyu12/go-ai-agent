@@ -80,6 +80,33 @@ func autoMigrate(db *gorm.DB) error {
 	)
 }
 
+func TestConnection(cfg config.DatabaseConfig) error {
+	var dialector gorm.Dialector
+	switch cfg.Driver {
+	case "mysql":
+		dialector = mysqlDriver.Open(cfg.DSN)
+	case "postgres":
+		dialector = pgDriver.Open(cfg.DSN)
+	case "sqlite":
+		dialector = sqliteDriver.Open(cfg.DSN)
+	default:
+		return fmt.Errorf("unsupported database driver: %s", cfg.Driver)
+	}
+
+	db, err := gorm.Open(dialector, &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		return fmt.Errorf("open database: %w", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("get underlying db: %w", err)
+	}
+	defer sqlDB.Close()
+	return sqlDB.Ping()
+}
+
 func (s *GormStore) Close() error {
 	sqlDB, err := s.db.DB()
 	if err != nil {

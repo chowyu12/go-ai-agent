@@ -9,6 +9,7 @@
 
       <div class="setup-steps">
         <el-steps :active="1" align-center finish-status="success" class="step-bar">
+          <el-step title="配置数据库" />
           <el-step title="创建超管" />
           <el-step title="开始使用" />
         </el-steps>
@@ -39,7 +40,7 @@ import { User, Lock } from '@element-plus/icons-vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
-import { resetInitialized } from '@/router'
+import { resetSetupStatus } from '@/router'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -80,7 +81,7 @@ async function handleSetup() {
   try {
     const res: any = await authApi.setup({ username: form.username, password: form.password })
     authStore.setAuth(res.data.token, res.data.user)
-    resetInitialized()
+    resetSetupStatus()
     ElMessage.success('超级管理员创建成功，欢迎使用!')
     router.push('/')
   } catch {

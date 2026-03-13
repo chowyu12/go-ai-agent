@@ -113,5 +113,6 @@ func isPublic(path string) bool {
 		return true
 	}
 	return path == "/api/v1/auth/login" ||
-		strings.HasPrefix(path, "/api/v1/auth/setup")
+		strings.HasPrefix(path, "/api/v1/auth/setup") ||
+		strings.HasPrefix(path, "/api/v1/setup/")
 }

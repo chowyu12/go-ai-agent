@@ -14,17 +14,17 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	agentpkg "github.com/chowyu12/go-ai-agent/internal/agent"
-	"github.com/chowyu12/go-ai-agent/internal/tool/browser"
 	"github.com/chowyu12/go-ai-agent/internal/auth"
 	"github.com/chowyu12/go-ai-agent/internal/config"
 	"github.com/chowyu12/go-ai-agent/internal/handler"
 	"github.com/chowyu12/go-ai-agent/internal/seed"
 	"github.com/chowyu12/go-ai-agent/internal/store/gormstore"
+	"github.com/chowyu12/go-ai-agent/internal/tool/browser"
 	"github.com/chowyu12/go-ai-agent/internal/workspace"
 	"github.com/chowyu12/go-ai-agent/web"
 )
 
-var configFile = flag.String("config", "etc/config.yaml", "config file path")
+var configFile = flag.String("config", "", "config file path (default: ~/.go-agent/config.yaml)")
 
 func main() {
 	flag.Parse()
@@ -35,10 +35,12 @@ func main() {
 	})
 	log.SetLevel(log.DebugLevel)
 
-	cfg, err := config.Load(*configFile)
+	cfgPath := config.ConfigPath(*configFile)
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		log.WithError(err).Fatal("load config failed")
 	}
+	log.WithField("path", cfgPath).Info("config loaded")
 
 	if cfg.Log.Level != "" {
 		if lvl, err := log.ParseLevel(cfg.Log.Level); err == nil {
@@ -56,6 +58,20 @@ func main() {
 
 	if cfg.Upload.Dir == "" || cfg.Upload.Dir == "./uploads" {
 		cfg.Upload.Dir = workspace.Uploads()
+	}
+
+	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
+
+	if cfg.NeedsDatabaseSetup() {
+		log.WithField("addr", addr).Warn("database not configured, starting setup wizard")
+		log.Infof("→ please open http://localhost:%d in your browser to configure database", cfg.Server.Port)
+		runSetupServer(cfg, cfgPath, addr)
+
+		cfg, err = config.Load(cfgPath)
+		if err != nil {
+			log.WithError(err).Fatal("reload config after setup failed")
+		}
+		log.Info("database configured, continuing startup...")
 	}
 
 	store, err := gormstore.New(cfg.Database)
@@ -102,7 +118,6 @@ func main() {
 	})
 	wrapped := handler.Logger(handler.CORS(authMW(mux)))
 
-	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	srv := &http.Server{
 		Addr:        addr,
 		Handler:     wrapped,
@@ -128,6 +143,47 @@ func main() {
 		log.WithError(err).Error("server shutdown error")
 	}
 	log.Info("server stopped")
+}
+
+func runSetupServer(cfg *config.Config, cfgPath, addr string) {
+	done := make(chan struct{})
+
+	mux := http.NewServeMux()
+	handler.NewSetupHandler(cfg, cfgPath, done).Register(mux)
+	mountFrontend(mux)
+
+	srv := &http.Server{
+		Addr:        addr,
+		Handler:     handler.Logger(handler.CORS(mux)),
+		ReadTimeout: 30 * time.Second,
+		IdleTimeout: 120 * time.Second,
+	}
+
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.WithError(err).Fatal("setup server error")
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-done:
+		log.Info("database setup completed via web wizard")
+	case <-quit:
+		log.Info("setup interrupted, shutting down...")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+		os.Exit(0)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	srv.Shutdown(ctx)
+
+	signal.Stop(quit)
 }
 
 func mountFrontend(mux *http.ServeMux) {

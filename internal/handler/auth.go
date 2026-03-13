@@ -23,6 +23,7 @@ func NewAuthHandler(s store.Store, secret string, expireHours int) *AuthHandler 
 }
 
 func (h *AuthHandler) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/v1/setup/check", h.SetupCheck)
 	mux.HandleFunc("GET /api/v1/auth/setup-check", h.SetupCheck)
 	mux.HandleFunc("POST /api/v1/auth/setup", h.Setup)
 	mux.HandleFunc("POST /api/v1/auth/login", h.Login)
@@ -39,7 +40,10 @@ func (h *AuthHandler) SetupCheck(w http.ResponseWriter, r *http.Request) {
 		httputil.InternalError(w, "check failed")
 		return
 	}
-	httputil.OK(w, map[string]bool{"initialized": has})
+	httputil.OK(w, map[string]any{
+		"database_configured": true,
+		"initialized":         has,
+	})
 }
 
 func (h *AuthHandler) Setup(w http.ResponseWriter, r *http.Request) {

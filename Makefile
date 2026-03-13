@@ -2,7 +2,6 @@
 
 APP_NAME := go-ai-agent
 BUILD_DIR := bin
-CONFIG := etc/config.yaml
 
 build:
 	go build -o $(BUILD_DIR)/$(APP_NAME) ./cmd/server
@@ -10,10 +9,10 @@ build:
 all: build-frontend build
 
 run: build
-	./$(BUILD_DIR)/$(APP_NAME) -config $(CONFIG)
+	./$(BUILD_DIR)/$(APP_NAME) 
 
 dev: build-frontend
-	go run ./cmd/server -config $(CONFIG)
+	go run ./cmd/server
 
 test:
 	go test -v -race ./...

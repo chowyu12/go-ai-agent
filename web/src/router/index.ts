@@ -1,18 +1,19 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { setupApi, type SetupStatus } from '@/api/setup'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
 
-let _initialized: boolean | null = null
+let _setupStatus: SetupStatus | null = null
 let _tokenVerified = false
 
-async function checkInitialized(): Promise<boolean> {
-  if (_initialized !== null) return _initialized
+async function checkSetupStatus(): Promise<SetupStatus> {
+  if (_setupStatus) return _setupStatus
   try {
-    const res: any = await authApi.setupCheck()
-    _initialized = res.data.initialized
-    return _initialized!
+    const res: any = await setupApi.check()
+    _setupStatus = res.data
+    return _setupStatus!
   } catch {
-    return true
+    return { database_configured: true, initialized: true }
   }
 }
 
@@ -35,6 +36,12 @@ async function verifyToken(): Promise<boolean> {
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/setup/database',
+      name: 'SetupDatabase',
+      component: () => import('../views/setup/Database.vue'),
+      meta: { public: true },
+    },
     {
       path: '/setup',
       name: 'Setup',
@@ -74,14 +81,20 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to) => {
-  const initialized = await checkInitialized()
+  const status = await checkSetupStatus()
 
-  if (!initialized && to.path !== '/setup') {
+  if (!status.database_configured && to.path !== '/setup/database') {
+    return '/setup/database'
+  }
+
+  if (status.database_configured && !status.initialized && to.path !== '/setup') {
     return '/setup'
   }
 
-  if (initialized && to.path === '/setup') {
-    return '/login'
+  if (status.database_configured && status.initialized) {
+    if (to.path === '/setup/database' || to.path === '/setup') {
+      return '/login'
+    }
   }
 
   const token = localStorage.getItem('token')
@@ -108,8 +121,8 @@ router.beforeEach(async (to) => {
   }
 })
 
-export function resetInitialized() {
-  _initialized = null
+export function resetSetupStatus() {
+  _setupStatus = null
 }
 
 export function resetTokenVerified() {

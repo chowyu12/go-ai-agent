@@ -1,12 +1,23 @@
+workspace: ""
 server:
-  host: "0.0.0.0"
-  port: 8080
-
+    host: 0.0.0.0
+    port: 8080
 database:
-  driver: sqlite
-  dsn: "go_ai_agent.db"
-
+    driver: sqlite
+    dsn: go_ai_agent.db
+    max_open_conns: 0
+    max_idle_conns: 0
 log:
-  level: info
+    level: info
+jwt:
+    secret: go-ai-agent-default-jwt-secret
+    expire_hours: 24
+upload:
+    dir: /Users/zhouyy/.go-agent/uploads
+    max_size: 20971520
 browser:
-  visible: true
+    visible: true
+    width: 0
+    height: 0
+    user_agent: ""
+    proxy: ""
